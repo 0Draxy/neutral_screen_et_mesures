@@ -1,0 +1,13 @@
+FINAL TEST RUN — NEUTRAL SCREEN V2.12.3 — PACK R1
+UTC 2026-07-15 15:54:38
+
+[1] FIRST_PASSAGE test
+CAPTURE_FIRST_PASSAGE_TESTS_OK
+[2] EA safety / plausibility / UI / SQLite / PDF tests
+V2_12_3_SAFETY_PLAUSIBILITY_TESTS_OK
+[3] Windows SQLite temporary-file correction
+THREE_TEMP_SQLITE_CONNECTIONS_EXPLICITLY_CLOSED_OK
+
+TESTS EXECUTED IN THIS ENVIRONMENT: OK
+WINDOWS-SPECIFIC RESULT EXPECTED: no WinError 32 during TemporaryDirectory cleanup.
+The Qt font-directory warning in offscreen mode is non-blocking.
