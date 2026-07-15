@@ -1,0 +1,34 @@
+Je te soumets la V2.12.3 après ton audit contradictoire de la V2.12.2.
+
+Commence par lire :
+- FICHIERS_MODIFIES_V2_12_3.md
+- CHANGELOG_V2_12_3.md
+- CORRECTION_SECURITE_EA_PLAUSIBILITE_V2_12_3.md
+- FINAL_TEST_OUTPUT_V2_12_3.txt (trace à vérifier, pas preuve suffisante)
+
+Contrôle ensuite directement les fichiers modifiés, sans te fier aux documents de validation :
+- main_ihm_relais_rp2040_v2_12_3.py
+- ihm_relais_rp2040_28vdc_precision_v2_12_3.ui
+- chronometrie_contacts.sqlite3
+- SCHEMA_SQLITE_V2_12_3.sql
+- test_securite_ea_plausibilite_v2_12_3.py
+- build_exe_onefile_ihm_relais_rp2040_v2_12_3.bat
+
+Le firmware .ino ne contient qu’un changement de numéro de version ; vérifie néanmoins que FIRST_PASSAGE n’a pas régressé.
+
+Points à vérifier en priorité :
+1. Une réponse vide ou un timeout sur SYST:ERR?, FUNC:GEN:WAVE:STAT?, OUTP? ou MEAS:VOLT? ne peut jamais être accepté comme un état correct.
+2. La surveillance périodique de l’état RUN s’arrête proprement en fin de rampe et ne crée pas de concurrence dangereuse avec les autres requêtes EA.
+3. L’arrêt confirmé commande STOP, OUTP OFF et VOLT 0 puis vérifie générateur arrêté, sortie OFF, tension <= 0,200 V et file SCPI à 0.
+4. Une absence de confirmation affiche bien une alerte claire et ne laisse pas le résultat en OK.
+5. La limite de durée dynamique est arrondie vers le bas et aucune valeur acceptée par l’IHM n’est ensuite rejetée par configure_voltage_ramp pour pente trop faible.
+6. Le contrôle de plausibilité ne modifie jamais RAW, MV ou T_US, et sa tolérance tient compte du décalage entre armement RP2040 et départ EA.
+7. Les résultats INCOHERENT, NON_VERIFIE et ARRET_EA_NON_CONFIRME sont correctement sauvegardés et exportés.
+8. Les verdicts de plausibilité, de sécurité et d'arrêt sont remis à zéro au début de chaque nouvel essai et aucune valeur de l'essai précédent ne peut contaminer le suivant.
+9. Les migrations SQLite sont idempotentes et compatibles avec une base V2.12.2 existante.
+10. Les exports XLSX et PDF contiennent réellement les nouvelles colonnes ; en particulier, le générateur PDF ne tronque plus les colonnes après la neuvième.
+11. Le bouton modal TEST FINI reste fonctionnel après suppression du bouton principal caché.
+12. Le bouton Recharger base existe dans le .ui et sa connexion Python est valide.
+13. Le BAT onefile contient tous les fichiers nécessaires et le chemin du .ui reste correct avec PyInstaller récent.
+
+Pour chaque défaut, donne fichier, fonction, lignes exactes, sévérité, conséquence et correctif minimal. Ne modifie aucun fichier lors de cette première vérification.
