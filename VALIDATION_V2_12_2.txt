@@ -1,0 +1,36 @@
+VALIDATION NEUTRAL SCREEN V2.12.2
+Date : 2026-07-15
+
+ÉTAT LOGICIEL
+- Python : validé syntaxiquement.
+- Interface Qt : validée et chargée hors écran.
+- JSON scénarios : valide.
+- Initialisation complète de l'IHM : validée hors écran.
+- Base SQLite : création, migration et insertion validées.
+- Sécurité licence : conservée sans modification.
+
+ÉTAT DE LA CORRECTION DEMANDÉE
+- Capture collage au premier passage complet travail : implémentée.
+- Capture décollage au premier passage complet repos : implémentée.
+- Capture BE bistable au premier passage complet travail : implémentée.
+- Capture BR bistable au premier passage complet repos : implémentée.
+- Rebond après première capture : n'écrase plus la tension mémorisée.
+- Validation stable : confirme l'état final sans modifier la tension.
+- Compatibilité firmware : l'IHM refuse un ancien firmware ne confirmant pas FIRST_PASSAGE.
+- Traçabilité SQLite/XLSX : politiques de capture et de validation ajoutées.
+
+ÉTAT MATÉRIEL
+NON VALIDÉ dans cet environnement.
+
+ESSAI MATÉRIEL À EFFECTUER
+1. Téléverser le firmware V2.12.2.
+2. Lancer l'IHM V2.12.2.
+3. Vérifier que l'IHM accepte l'armement sans message de firmware incompatible.
+4. Programmer par exemple 0 → 20 V en 20 s.
+5. Observer un relais collant vers 12 V.
+6. Vérifier que la trame/log affiche un premier passage proche de 12 V.
+7. Vérifier qu'un rebond ultérieur ne remplace pas cette valeur.
+8. Refaire le contrôle en descente monostable puis en montée BR bistable.
+
+CONCLUSION
+Le pack est prêt pour validation matérielle. Il ne doit pas être déclaré validé métrologiquement avant comparaison avec un voltmètre de référence aux bornes du relais et répétition des essais BE/BR.

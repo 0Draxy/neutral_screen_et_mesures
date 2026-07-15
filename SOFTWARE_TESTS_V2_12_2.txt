@@ -1,0 +1,62 @@
+TESTS LOGICIELS — NEUTRAL SCREEN V2.12.2
+Date : 2026-07-15
+
+1. Compilation syntaxique Python
+Commande : python -m py_compile main_ihm_relais_rp2040_v2_12_2.py licence_manager.py
+Résultat : OK
+
+2. Validation XML de l'interface Qt Designer
+Fichier : ihm_relais_rp2040_28vdc_precision_v2_12_2.ui
+Résultat : OK
+
+3. Validation JSON
+Fichier : neutral_scenarios.json
+Résultat : OK
+
+4. Chargement Qt hors écran
+Contrôles :
+- fenêtre chargée par QUiLoader ;
+- titre V2.12.2 ;
+- spinBox_voltage_stable_ms présent, valeur 3 ms ;
+- infobulle expliquant la capture au premier passage.
+Résultat : OK
+
+5. Initialisation complète de l'IHM hors écran
+Classe : IhmRelaisRp2040
+Résultat : OK
+
+6. Test de la logique de capture avant rebonds
+Script : test_capture_premier_passage_v2_12_2.py
+Scénarios :
+- collage avec premier passage à 12,000 V, rebond puis stabilisation à 12,033 V ; résultat attendu 12,000 V ;
+- décollage avec premier passage à 12,020 V, rebond puis stabilisation à 11,987 V ; résultat attendu 12,020 V ;
+- passage sans rebond.
+Résultat : CAPTURE_FIRST_PASSAGE_TESTS_OK
+
+7. Test des trames VSCAN dans l'IHM
+Contrôles :
+- acceptation de CAPTURE=FIRST_PASSAGE et VALIDATION=STABLE_AFTER_CAPTURE ;
+- refus d'une trame BEGIN d'ancien firmware sans ces indicateurs ;
+- mémorisation de la trame VSCAN;FIRST globale.
+Résultat : IHM_VSCAN_POLICY_TEST_OK
+
+8. Test SQLite
+Contrôles :
+- création/migration de la table mesures_tension_fonctionnement ;
+- sauvegarde d'un résultat collage/décollage ;
+- sauvegarde capture_policy=FIRST_PASSAGE ;
+- sauvegarde validation_policy=STABLE_AFTER_CAPTURE.
+Résultat : DB_SAVE_OK
+
+9. Contrôle structurel du firmware
+Contrôles : accolades, parenthèses, crochets, chaînes et commentaires équilibrés.
+Résultat : FIRMWARE_BRACES_LEXER_OK
+
+10. Contrôle de conservation de la licence
+Le SHA-256 de licence_manager.py est identique à celui de la V2.12.1.
+Résultat : OK
+
+LIMITES DES TESTS
+- Pas de compilation Arduino/RP2040 dans cet environnement : arduino-cli et le cœur RP2040 ne sont pas installés.
+- Pas d'essai physique sur RP2040, ADS1115, alimentation EA ou relais.
+- La durée et la forme réelles des rampes doivent être confirmées sur le matériel.
