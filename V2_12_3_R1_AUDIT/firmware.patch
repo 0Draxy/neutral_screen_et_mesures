@@ -1,0 +1,30 @@
+--- /mnt/data/neutral_screen_v2_12_2_pack/rp2040_relais_28vdc_precision_v2_12_2_ADS1115_GP26_RGB.ino	2026-07-15 15:50:04.104896787 +0000
++++ /tmp/ns123/rp2040_relais_28vdc_precision_v2_12_3_ADS1115_GP26_RGB.ino	2026-07-15 15:50:02.000000000 +0000
+@@ -1,7 +1,7 @@
+ /*
+-  RP2040 - Pilotage relais 28 VDC - V2.12.2 selection tension Neutral screen + LED RGB etats IHM
++  RP2040 - Pilotage relais 28 VDC - V2.12.3 selection tension Neutral screen + LED RGB etats IHM
+ 
+-  Etat fonctionnel V2.12.2 :
++  Etat fonctionnel V2.12.3 :
+   - BE sur GP14, BR sur GP15 et selection 28/32 V sur GP26.
+   - LED RGB interne WS2812 sur GP16 pilotee par commandes serie LED;...
+   - Sequence Neutral Screen non bloquante avec settle, pulse et retombee relais.
+@@ -10,7 +10,7 @@
+   - Mesure chronometrique BE/BR et monostable avec capture GPIO rapide.
+   - Horodatage apres lecture gpio_get_all(), overflow explicite et LOOP_MAX_US.
+   - Mesure tension : capture au premier passage complet avant rebonds, puis validation stable.
+-  - Trame HELLO annonce V2_12_2 a l'IHM.
++  - Trame HELLO annonce V2_12_3 a l'IHM.
+ 
+   Principe inchange :
+   - Le PC/IHM ne pilote jamais les fronts en temps reel.
+@@ -1826,7 +1826,7 @@
+   Serial.begin(921600);
+   delay(500);
+ 
+-  Serial.println("RP2040_RELAIS_28VDC_PRET;V2_12_2;SELECTION_TENSION_BASSE_HAUTE_INFO_GP26;LED_RGB_GP16;LED_COMMANDS;MEASURE_CONTACTS;MEASURE_MONO;ADS1115_GP0_GP1;VOLTAGE_MONO_BISTABLE;CALIBRATION_RAW;VOLTAGE_FIRST_PASSAGE;STABLE_CONFIRMATION;CAPTURE_QUALITY_50US");
++  Serial.println("RP2040_RELAIS_28VDC_PRET;V2_12_3;SELECTION_TENSION_BASSE_HAUTE_INFO_GP26;LED_RGB_GP16;LED_COMMANDS;MEASURE_CONTACTS;MEASURE_MONO;ADS1115_GP0_GP1;VOLTAGE_MONO_BISTABLE;CALIBRATION_RAW;VOLTAGE_FIRST_PASSAGE;STABLE_CONFIRMATION;CAPTURE_QUALITY_50US");
+   envoyerStatus("BOOT");
+ }
+ 
