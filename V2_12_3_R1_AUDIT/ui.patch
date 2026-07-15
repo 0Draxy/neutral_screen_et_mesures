@@ -1,0 +1,82 @@
+--- /mnt/data/neutral_screen_v2_12_2_pack/ihm_relais_rp2040_28vdc_precision_v2_12_2.ui	2026-07-15 15:50:04.118189039 +0000
++++ /tmp/ns123/ihm_relais_rp2040_28vdc_precision_v2_12_3.ui	2026-07-15 15:50:02.000000000 +0000
+@@ -11,7 +11,7 @@
+    </rect>
+   </property>
+   <property name="windowTitle">
+-   <string>Cycleur - Neutral Screen - V2.12.2 - (Par O.MARECHAL)</string>
++   <string>Cycleur - Neutral Screen - V2.12.3 - (Par O.MARECHAL)</string>
+   </property>
+   <widget class="QWidget" name="centralwidget">
+    <widget class="QTabWidget" name="tabWidget_principal">
+@@ -360,6 +360,25 @@
+         </rect>
+        </property>
+       </widget>
++      <widget class="QPushButton" name="pushButton_prod_reload_base">
++       <property name="geometry">
++        <rect>
++         <x>460</x>
++         <y>24</y>
++         <width>130</width>
++         <height>28</height>
++        </rect>
++       </property>
++       <property name="styleSheet">
++        <string>font-weight: bold; background-color: rgb(240,240,240); color: black;</string>
++       </property>
++       <property name="toolTip">
++        <string>Relit la base Production depuis le disque et actualise les tableaux Production et Gestion Base.</string>
++       </property>
++       <property name="text">
++        <string>Recharger base</string>
++       </property>
++      </widget>
+       <widget class="QPushButton" name="pushButton_prod_export_pdf_lot">
+        <property name="geometry">
+         <rect>
+@@ -1398,7 +1417,7 @@
+        <bool>false</bool>
+       </property>
+       <property name="title">
+-       <string>LOGIGRAMME FIXE MASQUE - V2.12.2</string>
++       <string>LOGIGRAMME FIXE MASQUE - V2.12.3</string>
+       </property>
+       <widget class="QLabel" name="label_auto_step_start">
+        <property name="geometry">
+@@ -3294,7 +3313,7 @@
+        <string>background-color: rgb(245,245,220); color: black; border: 1px solid rgb(160,160,120); font-weight: bold;</string>
+       </property>
+       <property name="text">
+-       <string>V2.12.2 : Description plus lisible ; colonne Note masquée ; infobulle complète au survol.</string>
++       <string>V2.12.3 : Description plus lisible ; colonne Note masquée ; infobulle complète au survol.</string>
+       </property>
+       <property name="alignment">
+        <set>Qt::AlignmentFlag::AlignCenter</set>
+@@ -7370,7 +7389,7 @@
+         <string> s</string>
+        </property>
+        <property name="toolTip">
+-        <string>Durée complète de la rampe EA. La mesure s'arrête dès le basculement : 12 V sur 0→20 V en 20 s est attendu vers 12 s. La durée est aussi contrôlée par la pente minimale de l'EA.</string>
++        <string>Durée complète de la rampe EA. La mesure s'arrête dès le basculement : 12 V sur 0→20 V en 20 s est attendu vers 12 s. La durée maximale est recalculée automatiquement à partir de Vmax et de la pente minimale EA.</string>
+        </property>
+       </widget>
+       <widget class="QLabel" name="label_voltage_ramp_down">
+@@ -7414,7 +7433,7 @@
+         <string> s</string>
+        </property>
+        <property name="toolTip">
+-        <string>Durée complète de la rampe EA. La mesure s'arrête dès le basculement : 12 V sur 0→20 V en 20 s est attendu vers 12 s. La durée est aussi contrôlée par la pente minimale de l'EA.</string>
++        <string>Durée complète de la rampe EA. La mesure s'arrête dès le basculement : 12 V sur 0→20 V en 20 s est attendu vers 12 s. La durée maximale est recalculée automatiquement à partir de Vmax et de la pente minimale EA.</string>
+        </property>
+       </widget>
+       <widget class="QLabel" name="label_voltage_current">
+@@ -7620,7 +7639,7 @@
+         <string>color: rgb(120,60,0); font-weight: bold;</string>
+        </property>
+        <property name="text">
+-        <string>Tension officielle = premier passage complet avant rebonds ; validation stable sans recapture.</string>
++        <string>Premier passage avant rebonds | durée maximale recalculée selon la pente minimale EA.</string>
+        </property>
+        <property name="alignment">
+         <set>Qt::AlignmentFlag::AlignCenter</set>
