@@ -1,0 +1,361 @@
+--- /mnt/data/neutral_screen_v2_12_2_pack/main_ihm_relais_rp2040_v2_12_2.py	2026-07-15 15:50:04.064757760 +0000
++++ /tmp/ns123/main_ihm_relais_rp2040_v2_12_3.py	2026-07-15 15:50:02.000000000 +0000
+@@ -18,7 +18,7 @@
+ import serial.tools.list_ports
+ 
+ from PySide6.QtCore import QThread, Signal, QTimer, QFile, Qt, QDate, QObject, QEvent, QLineF
+-from PySide6.QtGui import QColor, QFont, QKeySequence, QPageSize, QPainter, QPdfWriter, QPen, QShortcut
++from PySide6.QtGui import QColor, QFont, QKeySequence, QPageLayout, QPageSize, QPainter, QPdfWriter, QPen, QShortcut
+ from PySide6.QtWidgets import QApplication, QMessageBox, QWidget, QPushButton, QComboBox, QLineEdit, QLabel, QTextEdit, QTableWidget, QTableWidgetItem, QFileDialog, QSpinBox, QHeaderView, QCheckBox, QTabWidget, QDateEdit, QInputDialog, QDialog, QVBoxLayout, QHBoxLayout, QGridLayout, QGroupBox, QToolTip, QDoubleSpinBox
+ from PySide6.QtUiTools import QUiLoader
+ 
+@@ -34,7 +34,7 @@
+ 
+ 
+ EXPORT_DIR = runtime_output_dir()
+-UI_FILE = APP_DIR / "ihm_relais_rp2040_28vdc_precision_v2_12_2.ui"
++UI_FILE = APP_DIR / "ihm_relais_rp2040_28vdc_precision_v2_12_3.ui"
+ 
+ UINT32_MAX_MS = 4_294_967_295
+ MAX_US_TOTAL = UINT32_MAX_MS * 1000
+@@ -44,6 +44,12 @@
+ CHRONO_SPREAD_INFO_US = 50
+ CHRONO_LOOP_WARN_US = 200
+ CHRONO_TRANSFER_LIMIT_MS = 1.0
++EA_STOP_CONFIRM_MAX_V = 0.200
++EA_STOP_CONFIRM_SETTLE_S = 0.200
++EA_STOP_CONFIRM_ATTEMPTS = 2
++EA_STOP_CONFIRM_QUERY_TIMEOUT_S = 0.350
++VOLTAGE_PLAUSIBILITY_MIN_TOL_S = 0.750
++VOLTAGE_PLAUSIBILITY_REL_TOL = 0.100
+ CHRONO_CONTACT_NAMES = ["R1", "R2", "R3", "R4", "T1", "T2", "T3", "T4"]
+ OSCILLO_COMBINED_GAP_US = 2000
+ OSCILLO_DISPLAY_ELECTRIC = "ELECTRIC"
+@@ -282,6 +288,13 @@
+         self.send(command)
+         return self.ser.readline().decode("ascii", errors="replace").strip()
+ 
++    def query_required(self, command, name="réponse"):
++        response = self.query(command)
++        text = str(response or "").strip()
++        if not text:
++            raise RuntimeError(f"Aucune réponse EA pour {name} ({command}).")
++        return text
++
+     @classmethod
+     def parse_number(cls, response, name="valeur"):
+         match = cls._NUMBER_RE.search(str(response or ""))
+@@ -320,19 +333,16 @@
+                 pass
+ 
+     def read_scpi_error(self):
+-        """Retourne la file d'erreur SCPI. Une réponse vide reste tolérée pour compatibilité."""
+-        try:
+-            response = self.query("SYST:ERR?")
+-        except Exception:
+-            return ""
+-        self.last_scpi_error = str(response or "").strip()
++        """Retourne la file d'erreur SCPI. Une réponse vide ou un timeout est une erreur."""
++        response = self.query_required("SYST:ERR?", "file d'erreurs SCPI")
++        self.last_scpi_error = str(response).strip()
+         return self.last_scpi_error
+ 
+     @staticmethod
+     def scpi_error_is_clear(response):
+         text = str(response or "").strip()
+         if not text:
+-            return True
++            return False
+         match = re.match(r"\s*([-+]?\d+)", text)
+         return bool(match and int(match.group(1)) == 0)
+ 
+@@ -435,11 +445,157 @@
+         self.send("OUTP ON")
+         self.send("FUNC:GEN:WAVE:STAT RUN")
+ 
+-    def generator_state(self):
++    @staticmethod
++    def _state_tokens(response):
++        text = str(response or "").strip().upper()
++        return text, [token for token in re.split(r"[^A-Z0-9.+-]+", text) if token]
++
++    @classmethod
++    def generator_state_is_running(cls, response):
++        text, tokens = cls._state_tokens(response)
++        if text == "ON" or any(token.startswith("RUN") for token in tokens):
++            return True
+         try:
+-            return self.query("FUNC:GEN:WAVE:STAT?").strip().upper()
++            return cls.parse_number(text, "état générateur") >= 0.5
+         except Exception:
+-            return ""
++            return False
++
++    @classmethod
++    def generator_state_is_stopped(cls, response):
++        text, tokens = cls._state_tokens(response)
++        if text == "OFF" or any(token.startswith(("STOP", "IDLE")) for token in tokens):
++            return True
++        try:
++            return cls.parse_number(text, "état générateur") < 0.5
++        except Exception:
++            return False
++
++    @classmethod
++    def output_state_is_off(cls, response):
++        text, tokens = cls._state_tokens(response)
++        if text in ("0", "OFF", "FALSE") or "OFF" in tokens:
++            return True
++        try:
++            return abs(cls.parse_number(text, "état sortie")) < 0.5
++        except Exception:
++            return False
++
++    def generator_state(self):
++        return self.query_required("FUNC:GEN:WAVE:STAT?", "état générateur").upper()
++
++    def output_state(self):
++        return self.query_required("OUTP?", "état sortie").upper()
++
++    def measured_voltage(self):
++        return self.query_float("MEAS:VOLT?", "tension de sortie")
++
++    def safe_stop_and_confirm(
++        self,
++        max_voltage_v=EA_STOP_CONFIRM_MAX_V,
++        settle_s=EA_STOP_CONFIRM_SETTLE_S,
++        attempts=EA_STOP_CONFIRM_ATTEMPTS,
++    ):
++        """Demande l'arrêt puis confirme générateur STOP, sortie OFF et tension proche de 0 V."""
++        result = {
++            "confirmed": False,
++            "generator_state": "",
++            "output_state": "",
++            "measured_voltage_v": None,
++            "scpi_error": "",
++            "errors": [],
++        }
++        if not self.connected or self.ser is None or not self.ser.is_open:
++            result["errors"].append("Alimentation EA non connectée.")
++            return result
++
++        old_timeout = getattr(self.ser, "timeout", None)
++        timeout_changed = False
++        try:
++            if old_timeout is not None:
++                self.ser.timeout = min(float(old_timeout), EA_STOP_CONFIRM_QUERY_TIMEOUT_S)
++                timeout_changed = True
++        except Exception:
++            timeout_changed = False
++
++        try:
++            for attempt in range(1, max(1, int(attempts)) + 1):
++                command_errors = []
++                for command in (
++                    "FUNC:GEN:WAVE:STAT STOP",
++                    "OUTP OFF",
++                    "VOLT 0",
++                ):
++                    try:
++                        self.send(command)
++                    except Exception as exc:
++                        command_errors.append(f"{command}: {exc}")
++                time.sleep(max(0.0, float(settle_s)))
++
++                check_errors = []
++                try:
++                    result["generator_state"] = self.generator_state()
++                except Exception as exc:
++                    check_errors.append(f"état générateur: {exc}")
++                if not check_errors:
++                    try:
++                        result["output_state"] = self.output_state()
++                    except Exception as exc:
++                        check_errors.append(f"état sortie: {exc}")
++                if not check_errors:
++                    try:
++                        result["measured_voltage_v"] = float(self.measured_voltage())
++                    except Exception as exc:
++                        check_errors.append(f"tension sortie: {exc}")
++                if not check_errors:
++                    try:
++                        result["scpi_error"] = self.read_scpi_error()
++                    except Exception as exc:
++                        check_errors.append(f"file SCPI: {exc}")
++
++                generator_ok = self.generator_state_is_stopped(result["generator_state"])
++                output_ok = self.output_state_is_off(result["output_state"])
++                voltage = result["measured_voltage_v"]
++                voltage_ok = voltage is not None and abs(float(voltage)) <= abs(float(max_voltage_v))
++                scpi_ok = self.scpi_error_is_clear(result["scpi_error"])
++                validation_errors = []
++                if not check_errors:
++                    if not generator_ok:
++                        validation_errors.append(
++                            f"générateur non arrêté: {result['generator_state'] or 'réponse vide'}"
++                        )
++                    if not output_ok:
++                        validation_errors.append(
++                            f"sortie non coupée: {result['output_state'] or 'réponse vide'}"
++                        )
++                    if not voltage_ok:
++                        voltage_text = "non relue" if voltage is None else f"{float(voltage):.3f} V"
++                        validation_errors.append(
++                            f"tension résiduelle {voltage_text} > {abs(float(max_voltage_v)):.3f} V"
++                        )
++                    if not scpi_ok:
++                        validation_errors.append(
++                            f"file SCPI non claire: {result['scpi_error'] or 'réponse vide'}"
++                        )
++                result["confirmed"] = bool(
++                    generator_ok and output_ok and voltage_ok and scpi_ok and not check_errors
++                )
++                result["errors"] = command_errors + check_errors + validation_errors
++                if result["confirmed"]:
++                    try:
++                        self.send("FUNC:GEN:SEL NONE")
++                    except Exception as exc:
++                        result["errors"].append(f"sortie mode générateur: {exc}")
++                    return result
++                if attempt < max(1, int(attempts)):
++                    time.sleep(max(0.0, float(settle_s)))
++        finally:
++            if timeout_changed:
++                try:
++                    self.ser.timeout = old_timeout
++                except Exception:
++                    pass
++
++        return result
+ 
+ 
+ class SortableTableWidgetItem(QTableWidgetItem):
+@@ -1167,7 +1323,7 @@
+         self.comboBox_prod_operateur = self.get_widget(QComboBox, "comboBox_prod_operateur")
+         self.dateEdit_prod_date = self.get_widget(QDateEdit, "dateEdit_prod_date")
+         self.pushButton_prod_save_context = self.get_widget(QPushButton, "pushButton_prod_save_context")
+-        self.pushButton_prod_reload_base = self.window.findChild(QPushButton, "pushButton_prod_reload_base")
++        self.pushButton_prod_reload_base = self.get_widget(QPushButton, "pushButton_prod_reload_base")
+         self.pushButton_prod_export_pdf_lot = self.get_widget(QPushButton, "pushButton_prod_export_pdf_lot")
+         self.lineEdit_prod_search_lot = self.get_widget(QLineEdit, "lineEdit_prod_search_lot")
+         self.pushButton_prod_search_clear = self.get_widget(QPushButton, "pushButton_prod_search_clear")
+@@ -1287,7 +1443,7 @@
+         self.label_led_latch_contact_8 = self.get_widget(QLabel, "label_led_latch_contact_8")
+         self.label_neutral_contact_summary = self.get_widget(QLabel, "label_neutral_contact_summary")
+ 
+-        # Onglet Neutral Screen Automatique V2.12.2
++        # Onglet Neutral Screen Automatique V2.12.3
+         self.pushButton_auto_neutral_marche = self.get_widget(QPushButton, "pushButton_auto_neutral_marche")
+         self.pushButton_auto_neutral_arret = self.get_widget(QPushButton, "pushButton_auto_neutral_arret")
+         self.lineEdit_auto_delai_ms = self.get_widget(QLineEdit, "lineEdit_auto_delai_ms")
+@@ -1302,11 +1458,6 @@
+         self.lineEdit_SN = self.get_widget(QLineEdit, "lineEdit_SN")
+         self.label_auto_lot = self.window.findChild(QLabel, "label_LOT")
+         self.label_auto_design_relais = self.window.findChild(QLabel, "label_design_relais")
+-        self.pushButton_auto_fin_essai = self.window.findChild(QPushButton, "pushButton_auto_fin_essai")
+-        if self.pushButton_auto_fin_essai is None:
+-            self.pushButton_auto_fin_essai = QPushButton("TEST FINI", self.window)
+-            self.pushButton_auto_fin_essai.setObjectName("pushButton_auto_fin_essai")
+-            self.pushButton_auto_fin_essai.setVisible(False)
+         self.pushButton_auto_lot_fini = self.get_widget(QPushButton, "pushButton_auto_lot_fini")
+         self.tableWidget_auto_logigramme = self.get_widget(QTableWidget, "tableWidget_auto_logigramme")
+         self.label_auto_tension_basse = self.get_widget(QLabel, "label_auto_tension_basse")
+@@ -1323,7 +1474,7 @@
+         self.label_auto_led_t3 = self.get_widget(QLabel, "label_auto_led_t3")
+         self.label_auto_led_t4 = self.get_widget(QLabel, "label_auto_led_t4")
+ 
+-        # Onglet Éditeur Scénarios Neutral Screen V2.12.2
++        # Onglet Éditeur Scénarios Neutral Screen V2.12.3
+         self.comboBox_editor_scenarios = self.get_widget(QComboBox, "comboBox_editor_scenarios")
+         self.lineEdit_editor_nom = self.get_widget(QLineEdit, "lineEdit_editor_nom")
+         self.textEdit_editor_description = self.get_widget(QTextEdit, "textEdit_editor_description")
+@@ -1364,7 +1515,7 @@
+             "label_auto_step_reject",
+         ]
+         # Ancien logigramme fixe conservé uniquement pour compatibilité historique.
+-        # En V2.12.2 le vrai affichage est tableWidget_auto_logigramme.
++        # En V2.12.3 le vrai affichage est tableWidget_auto_logigramme.
+         self.auto_steps = {}
+         for name in self.auto_step_names:
+             w = self.window.findChild(QLabel, name)
+@@ -1378,7 +1529,7 @@
+         self.contacts_known_values = [None, None, None, None, None, None, None, None]
+         self.contacts_force_refresh = False
+ 
+-        # Automate Neutral Screen Automatique V2.12.2
++        # Automate Neutral Screen Automatique V2.12.3
+         self.auto_neutral_running = False
+         self.auto_neutral_attempt = 0
+         self.auto_next_action = None
+@@ -1394,14 +1545,14 @@
+         self.flash_timer.timeout.connect(self.end_flash)
+         self.flash_active = False
+ 
+-        # Scénarios Neutral Screen V2.12.2
+-        self.scenarios_data = {"version": "2.12.2", "scenarios": []}
++        # Scénarios Neutral Screen V2.12.3
++        self.scenarios_data = {"version": "2.12.3", "scenarios": []}
+         self.current_runtime_steps = []
+         self.current_runtime_scenario_name = ""
+         self.runtime_step_index = 0
+         self.runtime_attempt = 0
+         self._refreshing_scenario_combos = False
+-        self.production_data = {"version": "2.12.2", "last_context": {}, "records": [], "access_code": LOCK_ACCESS_CODE}
++        self.production_data = {"version": "2.12.3", "last_context": {}, "records": [], "access_code": LOCK_ACCESS_CODE}
+         self.current_access_code = LOCK_ACCESS_CODE
+         self._production_autofill_running = False
+         self._auto_start_prompts_done = False
+@@ -1631,6 +1782,7 @@
+         self.pushButton_voltage_export_pdf = self.get_widget(QPushButton, "pushButton_voltage_export_pdf")
+         self.label_voltage_live = self.get_widget(QLabel, "label_voltage_live")
+         self.label_voltage_status = self.get_widget(QLabel, "label_voltage_status")
++        self.label_voltage_accuracy = self.get_widget(QLabel, "label_voltage_accuracy")
+         self.tableWidget_voltage_results = self.get_widget(QTableWidget, "tableWidget_voltage_results")
+ 
+         if not self.lineEdit_voltage_date.text().strip():
+@@ -1654,6 +1806,9 @@
+         self.voltage_capture_policy = ""
+         self.voltage_effective_ramp_s = {"PICKUP": None, "DROPOUT": None}
+         self.voltage_ramp_readbacks = {"PICKUP": {}, "DROPOUT": {}}
++        self.voltage_plausibility = {"PICKUP": {}, "DROPOUT": {}}
++        self.voltage_result_override = ""
++        self.voltage_ea_stop_confirmation = self.voltage_empty_stop_confirmation()
+         self.voltage_last_adc_mv = None
+         self.voltage_last_adc_raw = None
+         self.voltage_ads_ok = False
+@@ -1676,11 +1831,15 @@
+         self.voltage_progress_timer = QTimer(self.window)
+         self.voltage_progress_timer.setInterval(100)
+         self.voltage_progress_timer.timeout.connect(self.voltage_update_ramp_progress)
++        self.voltage_ea_monitor_timer = QTimer(self.window)
++        self.voltage_ea_monitor_timer.setInterval(750)
++        self.voltage_ea_monitor_timer.timeout.connect(self.voltage_check_generator_running)
+         self.voltage_pending_ramp = None
+         self.voltage_refresh_ea_ports()
+         self.voltage_refresh_results_table()
+         self.voltage_init_db()
+         self.voltage_update_relay_type_ui()
++        self.voltage_update_ramp_limits()
+ 
+     def create_voltage_calibration_tab(self):
+         self.tab_voltage_calibration = self.get_widget(QWidget, "tab_voltage_calibration")
+@@ -1793,19 +1952,14 @@
+         self.tableWidget_db_lots.horizontalHeader().setStretchLastSection(True)
+ 
+     def initialiser_validation_fin_essai(self):
+-        self.pushButton_auto_fin_essai.setVisible(False)
++        # La validation opérateur est assurée exclusivement par la fenêtre modale TEST FINI.
+         self.set_auto_finish_validation_state(False)
+-        self.shortcut_auto_fin_essai_return = QShortcut(QKeySequence("Return"), self.window)
+-        self.shortcut_auto_fin_essai_return.setContext(Qt.ApplicationShortcut)
+-        self.shortcut_auto_fin_essai_return.activated.connect(self.auto_validate_end_of_test)
+-        self.shortcut_auto_fin_essai_enter = QShortcut(QKeySequence("Enter"), self.window)
+-        self.shortcut_auto_fin_essai_enter.setContext(Qt.ApplicationShortcut)
+-        self.shortcut_auto_fin_essai_enter.activated.connect(self.auto_validate_end_of_test)
+ 
+     def initialiser_aide_boutons_operateur(self):
+         """Installe une aide explicite après 3 secondes d'immobilité sur chaque bouton."""
+         aides = {
+             "pushButton_prod_save_context": "Vérifie les informations de production, charge le prochain SN si le lot existe, enregistre le contexte puis ouvre Neutral Screen Automatique.",
++            "pushButton_prod_reload_base": "Relit la base Production depuis le disque puis actualise les tableaux Production et Gestion Base.",
+             "pushButton_prod_export_pdf_lot": "Crée le rapport PDF
