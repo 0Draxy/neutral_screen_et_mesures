@@ -1,0 +1,303 @@
+ du lot sélectionné dans l'historique Production. Le PDF contient le détail des relais testés et le résumé accepté/refusé.",
+             "pushButton_prod_search_clear": "Efface le filtre de recherche lot et réaffiche l'ensemble des lots conservés dans la base.",
+             "pushButton_rafraichir_ports_2": "Recherche à nouveau les ports COM disponibles pour retrouver le RP2040 si le câble USB vient d'être branché.",
+@@ -1816,7 +1970,6 @@
+             "pushButton_auto_scenario_recharger": "Recharge le fichier neutral_scenarios.json depuis le disque pour prendre en compte les scénarios modifiés.",
+             "pushButton_auto_scenario_editer": "Ouvre l'onglet Editeur Scénario Neutral après déverrouillage, afin de modifier les scénarios de test.",
+             "pushButton_auto_lot_fini": "Clôture obligatoirement le lot en cours. Tant que ce bouton n'est pas validé, l'opérateur ne peut pas préparer un autre lot.",
+-            "pushButton_auto_fin_essai": "Valide la fin du test affiché. Le résultat du relais a déjà été enregistré ; ce bouton prépare le relais suivant.",
+             "pushButton_neutral_be": "Mode manuel : envoie un pulse BE sur la sortie 1. À utiliser uniquement pour un contrôle manuel maîtrisé.",
+             "pushButton_neutral_br": "Mode manuel : envoie un pulse BR sur la sortie 2. À utiliser uniquement pour un contrôle manuel maîtrisé.",
+             "pushButton_neutral_bebr": "Mode manuel : envoie un pulse simultané BE/BR. C'est l'action manuelle correspondant à la recherche de position Neutral Screen.",
+@@ -3016,6 +3169,8 @@
+     def write_table_pdf(self, path, title, headers, rows):
+         writer = QPdfWriter(path)
+         writer.setPageSize(QPageSize(QPageSize.A4))
++        if len(headers) > 9:
++            writer.setPageOrientation(QPageLayout.Landscape)
+         writer.setResolution(96)
+         painter = QPainter(writer)
+         if not painter.isActive():
+@@ -3023,13 +3178,14 @@
+         try:
+             page_w = writer.width()
+             page_h = writer.height()
+-            margin = 34
++            margin = 28 if len(headers) > 9 else 34
+             y = margin
+-            line_h = 16
+-            normal = QFont("Arial", 7)
+-            bold = QFont("Arial", 8)
++            dense_table = len(headers) > 9
++            line_h = 13 if dense_table else 16
++            normal = QFont("Arial", 5 if dense_table else 7)
++            bold = QFont("Arial", 6 if dense_table else 8)
+             bold.setBold(True)
+-            title_font = QFont("Arial", 14)
++            title_font = QFont("Arial", 12 if dense_table else 14)
+             title_font.setBold(True)
+ 
+             def new_page():
+@@ -3046,9 +3202,13 @@
+                 painter.drawText(int(x), int(yy), text)
+ 
+             available = page_w - margin * 2
+-            widths = [70, 60, 110, 80, 55, 80, 80, 42, 65][:len(headers)]
+-            total = sum(widths) or 1
+-            widths = [int(w * available / total) for w in widths]
++            # Une largeur est calculée pour chaque colonne. L'ancienne liste fixe
++            # de neuf largeurs tronquait silencieusement les colonnes suivantes.
++            weights = [max(5, min(22, len(str(label)) + 2)) for _key, label in headers]
++            total = sum(weights) or 1
++            widths = [max(20, int(weight * available / total)) for weight in weights]
++            if widths:
++                widths[-1] += available - sum(widths)
+             x_positions = [margin]
+             for width in widths[:-1]:
+                 x_positions.append(x_positions[-1] + width)
+@@ -3925,7 +4085,7 @@
+         try:
+             backup_files = self.database_backup_raw_files(reason_slug)
+             self.database_remove_active_files()
+-            self.production_data = {"version": "2.12.2", "last_context": {}, "records": [], "access_code": access_code}
++            self.production_data = {"version": "2.12.3", "last_context": {}, "records": [], "access_code": access_code}
+             self.current_access_code = access_code
+             self.production_init_db()
+             self.production_set_setting("access_code", access_code)
+@@ -4362,7 +4522,7 @@
+                 last_context = {}
+             self.current_access_code = str(self.production_get_setting("access_code", LOCK_ACCESS_CODE) or LOCK_ACCESS_CODE)
+             self.production_data = {
+-                "version": "2.12.2",
++                "version": "2.12.3",
+                 "last_context": last_context,
+                 "records": [],
+                 "access_code": self.current_access_code,
+@@ -4374,7 +4534,7 @@
+ 
+     def production_save_db(self):
+         self.production_init_db()
+-        self.production_data["version"] = "2.12.2"
++        self.production_data["version"] = "2.12.3"
+         self.production_data["access_code"] = self.current_access_code
+         self.production_set_setting("access_code", self.current_access_code)
+         self.production_set_setting(
+@@ -5005,8 +5165,7 @@
+             lambda text: self.sync_combo_text(self.comboBox_baudrate, text)
+         )
+         self.pushButton_prod_save_context.clicked.connect(self.production_prepare_and_open_auto_test)
+-        if self.pushButton_prod_reload_base is not None:
+-            self.pushButton_prod_reload_base.clicked.connect(self.production_reload_base)
++        self.pushButton_prod_reload_base.clicked.connect(self.production_reload_base)
+         self.pushButton_prod_export_pdf_lot.clicked.connect(self.production_export_pdf_lot)
+         self.lineEdit_prod_search_lot.textChanged.connect(self.production_refresh_table)
+         self.pushButton_prod_search_clear.clicked.connect(self.lineEdit_prod_search_lot.clear)
+@@ -5055,7 +5214,6 @@
+ 
+         self.pushButton_auto_neutral_marche.clicked.connect(self.auto_neutral_start)
+         self.pushButton_auto_neutral_arret.clicked.connect(self.auto_neutral_stop)
+-        self.pushButton_auto_fin_essai.clicked.connect(self.auto_validate_end_of_test)
+         self.pushButton_auto_lot_fini.clicked.connect(self.auto_finish_lot)
+         self.comboBox_auto_scenario.currentIndexChanged.connect(self.on_auto_scenario_changed)
+         self.pushButton_auto_scenario_recharger.clicked.connect(self.on_recharger_scenarios)
+@@ -5077,10 +5235,11 @@
+         self.pushButton_voltage_pickup.clicked.connect(lambda: self.voltage_start_test("PICKUP"))
+         self.pushButton_voltage_dropout.clicked.connect(lambda: self.voltage_start_test("DROPOUT"))
+         self.pushButton_voltage_cycle.clicked.connect(lambda: self.voltage_start_test("CYCLE"))
+-        self.pushButton_voltage_stop.clicked.connect(self.voltage_abort_test)
++        self.pushButton_voltage_stop.clicked.connect(lambda: self.voltage_abort_test())
+         self.pushButton_voltage_export_xlsx.clicked.connect(self.voltage_export_lot_xlsx)
+         self.pushButton_voltage_export_pdf.clicked.connect(self.voltage_export_lot_pdf)
+         self.spinBox_voltage_nb_inverseurs.valueChanged.connect(lambda _value: self.voltage_refresh_results_table())
++        self.doubleSpinBox_voltage_vmax.valueChanged.connect(self.voltage_update_ramp_limits)
+         self.comboBox_voltage_relay_type.currentTextChanged.connect(self.voltage_update_relay_type_ui)
+         self.pushButton_voltage_open_calibration.clicked.connect(lambda: self.set_tab_internal(self.tab_voltage_calibration))
+         self.pushButton_calibration_request_ads.clicked.connect(self.voltage_calibration_request_ads)
+@@ -5338,7 +5497,7 @@
+             self.set_connection_status_text(f"État connexion : connecté sur {port} à {baudrate} bauds")
+             self.log(f"Connexion ouverte : {port} / {baudrate}")
+             # On demande immédiatement un STATUS pour ne pas attendre l'AUTO 1 s.
+-            # V2.12.2 : repartir d'un état LED neutre et forcer un refresh complet
++            # V2.12.3 : repartir d'un état LED neutre et forcer un refresh complet
+             # dès la première trame, puis demander un STATUS immédiat.
+             self.contacts_known_values = [None] * 8
+             self.contacts_last_values = (None,) * 8
+@@ -5453,7 +5612,6 @@
+         if hasattr(self, "pushButton_auto_neutral_marche"):
+             self.pushButton_auto_neutral_marche.setEnabled(connected and not self.auto_neutral_running and not self.auto_end_validation_pending and not voltage_busy)
+             self.pushButton_auto_neutral_arret.setEnabled(connected and self.auto_neutral_running)
+-            self.pushButton_auto_fin_essai.setEnabled(self.auto_end_validation_pending)
+             self.pushButton_auto_lot_fini.setEnabled(not self.auto_neutral_running)
+             self.lineEdit_auto_nb_inverseurs.setEnabled(not self.auto_neutral_running)
+             self.update_auto_pulse_fields_state()
+@@ -7633,7 +7791,7 @@
+             label.setToolTip(f"{titre} : contact ouvert / non détecté")
+ 
+     def update_contacts_feedback(self, reset1, reset2, reset3, reset4, latch1, latch2, latch3, latch4):
+-        # V2.12.2 : si un champ est absent (None) dans une trame partielle, on
++        # V2.12.3 : si un champ est absent (None) dans une trame partielle, on
+         # conserve la dernière valeur connue au lieu d'éteindre/griser la LED.
+         recus = [reset1, reset2, reset3, reset4, latch1, latch2, latch3, latch4]
+         fusion = []
+@@ -7727,7 +7885,7 @@
+     def refresh_auto_leds_from_known_values(self):
+         """Rafraîchit immédiatement les LED de l'onglet auto depuis le dernier état connu.
+ 
+-        Objectif V2.12.2 :
++        Objectif V2.12.3 :
+         - si N passe de 2 à 4, R3/R4/T3/T4 ne doivent pas rester grisées ;
+         - si N passe de 4 à 2, R3/R4/T3/T4 doivent être grisées immédiatement ;
+         - ne pas attendre une nouvelle trame STATUS ou CONTACT.
+@@ -7935,7 +8093,7 @@
+ 
+ 
+     # ------------------------------------------------------------------
+-    # Neutral Screen Automatique V2.12.2
++    # Neutral Screen Automatique V2.12.3
+     # ------------------------------------------------------------------
+     def auto_update_tension_labels(self):
+         tension_basse = self.texte_tension_basse_info()
+@@ -8127,7 +8285,7 @@
+ 
+     def default_scenarios_data(self):
+         return {
+-            "version": "2.12.2",
++            "version": "2.12.3",
+             "scenarios": [
+                 {"name":"Neutral screen norme","description":"Scénario strict MIL-PRF-39016H 4.8.7.7 : BE/BR max 3 avec vérification neutre, si pas neutre après 3 essais accepté, sinon BE puis vérification latch, répéter BE/BR avec vérification neutre, puis BR avec vérification reset.","steps":[
+                     {"action":"BEBR","pulse_ms":10,"check":"NEUTRAL","max_attempts":3,"on_fail":"ACCEPT","description":"Recherche position neutre"},
+@@ -8926,21 +9084,6 @@
+ 
+     def set_auto_finish_validation_state(self, pending):
+         self.auto_end_validation_pending = bool(pending)
+-        self.pushButton_auto_fin_essai.setVisible(False)
+-        if pending:
+-            self.pushButton_auto_fin_essai.setEnabled(True)
+-            self.pushButton_auto_fin_essai.setText("TEST FINI")
+-            self.pushButton_auto_fin_essai.setStyleSheet(
+-                "background-color: rgb(255,235,80); color: black; "
+-                "font-size: 13pt; font-weight: bold; border: 4px solid rgb(180,80,0);"
+-            )
+-        else:
+-            self.pushButton_auto_fin_essai.setEnabled(False)
+-            self.pushButton_auto_fin_essai.setText("TEST FINI")
+-            self.pushButton_auto_fin_essai.setStyleSheet(
+-                "background-color: rgb(200,200,200); color: rgb(80,80,80); "
+-                "font-size: 13pt; font-weight: bold; border: 3px solid rgb(120,120,120);"
+-            )
+ 
+     def show_auto_finish_validation_dialog(self, accepted):
+         if not getattr(self, "auto_end_validation_pending", False):
+@@ -9144,7 +9287,7 @@
+         if self.runtime_step_index >= len(self.current_runtime_steps): self.auto_finish_accept_ok(); return
+         step=self.current_runtime_steps[self.runtime_step_index]; check=self.normalize_check(step.get("check","NONE")); max_attempts=int(step.get("max_attempts",1)); on_fail=self.normalize_on_fail(step.get("on_fail","REJECT"))
+         ok=True; detail="Aucune vérification"
+-        # V2.12.2 : garde anti faux-ACCEPT. Si la vérif dépend des contacts
++        # V2.12.3 : garde anti faux-ACCEPT. Si la vérif dépend des contacts
+         # mais que le retour RP2040 n'est pas encore connu, on rejette
+         # explicitement au lieu de consommer un essai vers ACCEPT.
+         if check in ("NEUTRAL","LATCH_RED","RESET_GREEN") and not self.auto_contacts_known():
+@@ -9212,7 +9355,7 @@
+ 
+ 
+     # ------------------------------------------------------------------
+-    # Étalonnage ADS1115 + pont diviseur V2.12.2
++    # Étalonnage ADS1115 + pont diviseur V2.12.3
+     # ------------------------------------------------------------------
+     def voltage_calibration_init_db(self):
+         self.chrono_init_db()
+@@ -9505,8 +9648,32 @@
+             headers = ["Inverseur", "Tension collage (V)", "Tension décollage (V)", "État"]
+         self.label_voltage_interphase_note.setText("Délai réel contrôlé")
+         self.tableWidget_voltage_results.setHorizontalHeaderLabels(headers)
++        self.voltage_update_ramp_limits()
+         self.voltage_refresh_results_table()
+ 
++    def voltage_update_ramp_limits(self, *_args):
++        vmax = max(0.0, float(self.doubleSpinBox_voltage_vmax.value()))
++        raw_max_duration_s = vmax / EAPSU.MIN_VOLTAGE_SLOPE_V_PER_S
++        decimals = int(self.doubleSpinBox_voltage_ramp_up_s.decimals())
++        scale = 10 ** max(0, decimals)
++        rounded_down_s = math.floor(raw_max_duration_s * scale + 1e-12) / scale
++        max_duration_s = max(float(self.doubleSpinBox_voltage_ramp_up_s.minimum()), rounded_down_s)
++        for spin in (self.doubleSpinBox_voltage_ramp_up_s, self.doubleSpinBox_voltage_ramp_down_s):
++            spin.setMaximum(max_duration_s)
++            spin.setToolTip(
++                f"Pente minimale EA : {EAPSU.MIN_VOLTAGE_SLOPE_V_PER_S:.3f} V/s. "
++                f"Pour une rampe de {vmax:.3f} V, durée maximale autorisée : {max_duration_s:.3f} s."
++            )
++        self.label_voltage_accuracy.setText(
++            f"Premier passage avant rebonds | pente EA mini {EAPSU.MIN_VOLTAGE_SLOPE_V_PER_S:.3f} V/s "
++            f"| durée maxi actuelle {max_duration_s:.3f} s"
++        )
++        self.label_voltage_accuracy.setToolTip(
++            "La durée maximale est recalculée automatiquement à partir de Vmax. "
++            "Le contrôle de plausibilité ne remplace jamais la tension ADS1115 capturée."
++        )
++        return max_duration_s
++
+     def voltage_refresh_ea_ports(self):
+         current = self.comboBox_voltage_ea_port.currentText().strip() if hasattr(self, "comboBox_voltage_ea_port") else ""
+         ports = [p.device for p in serial.tools.list_ports.comports()]
+@@ -9569,16 +9736,25 @@
+     def voltage_disconnect_ea(self):
+         if self.voltage_test_running:
+             self.voltage_abort_test("Déconnexion EA demandée")
+-        try:
+-            if self.ea_psu.connected:
+-                self.ea_psu.stop_generator(leave_mode=True)
+-                self.ea_psu.output(False)
+-                self.ea_psu.set_local()
+-        except Exception:
+-            pass
++        stop_confirmed = True
++        local_confirmed = True
++        if self.ea_psu.connected:
++            stop_confirmed = self.voltage_stop_ea_and_confirm("déconnexion EA", show_alert=True)
++            if stop_confirmed:
++                try:
++                    self.ea_psu.set_local()
++                except Exception:
++                    local_confirmed = False
+         self.ea_psu.disconnect()
+-        self.label_voltage_ea_status.setText("EA non connectée")
+-        self.label_voltage_ea_status.setStyleSheet("background-color: rgb(95,95,95); color: white; font-weight: bold; border: 1px solid black;")
++        if stop_confirmed and local_confirmed:
++            self.label_voltage_ea_status.setText("EA non connectée - arrêt confirmé")
++            self.label_voltage_ea_status.setStyleSheet("background-color: rgb(95,95,95); color: white; font-weight: bold; border: 1px solid black;")
++        elif stop_confirmed:
++            self.label_voltage_ea_status.setText("EA non connectée - arrêt confirmé, retour local non confirmé")
++            self.label_voltage_ea_status.setStyleSheet("background-color: rgb(210,145,0); color: black; font-weight: bold; border: 2px solid rgb(130,80,0);")
++        else:
++            self.label_voltage_ea_status.setText("EA déconnectée - ARRÊT NON CONFIRMÉ : couper manuellement")
++            self.label_voltage_ea_status.setStyleSheet("background-color: rgb(190,0,0); color: white; font-weight: bold; border: 2px solid black;")
+         self.voltage_update_button_states()
+ 
+     def voltage_copy_from_chrono(self):
+@@ -9594,6 +9770,130 @@
+         )
+         self.label_voltage_status.setText("Informations et type de relais repris depuis l'onglet Chronométrie contacts.")
+ 
++    def voltage_reset_assessment_state(self):
++        """Réinitialise les verdicts propres à un essai de tension."""
++        self.voltage_plausibility = {"PICKUP": {}, "DROPOUT": {}}
++        self.voltage_result_override = ""
++        self.voltage_ea_stop_confirmation = self.voltage_empty_stop_confirmation()
++
++    @staticmethod
++    def voltage_empty_stop_confirmation():
++        return {
++            "confirmed": None,
++            "generator_state": "",
++            "output_state": "",
++            "measured_voltage_v": None,
++            "scpi_error": "",
++            "errors": [],
++            "context": "",
++        }
++
++    def voltage_stop_ea_and_confirm(self, context, show_alert=False):
++        info = self.voltage_empty_stop_confirmation()
++        info["context"] = str(context or "arrêt")
++        try:
++            if not self.ea_p
