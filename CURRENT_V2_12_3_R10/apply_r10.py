@@ -27,13 +27,10 @@ PATCHES = {
     "firmware": {
         "glob": "firmware.patch.part*",
         "source": ROOT / "rp2040_relais_28vdc_precision_v2_12_2_ADS1115_GP26_RGB.ino",
-        "target": ROOT / "rp2040_relais_rp2040_v2_12_3_ADS1115_GP26_RGB.ino",
+        "target": ROOT / "rp2040_relais_28vdc_precision_v2_12_3_ADS1115_GP26_RGB.ino",
         "sha256": "4dc604fcffbc257b0c5c4065bfff7c928809784e0efdad42b25d104c007e3a6a",
     },
 }
-
-# Correct the firmware target name while keeping the dictionary compact above.
-PATCHES["firmware"]["target"] = ROOT / "rp2040_relais_28vdc_precision_v2_12_3_ADS1115_GP26_RGB.ino"
 
 
 def sha256(path: Path) -> str:
@@ -86,11 +83,26 @@ def apply_one(name: str, config: dict[str, object]) -> None:
 def install_support_files() -> None:
     if not SUPPORT_DIR.is_dir():
         raise FileNotFoundError(f"Dossier support absent : {SUPPORT_DIR}")
+
     for source in sorted(SUPPORT_DIR.iterdir()):
         if source.is_file():
             destination = ROOT / source.name
             shutil.copy2(source, destination)
             print(f"OK  support/{source.name} -> {destination.name}")
+
+    documentation_dir = ROOT / "DOCUMENTATION"
+    documentation_dir.mkdir(exist_ok=True)
+    for name in ("SCHEMA_SQLITE_V2_12_3.sql", "README_PACK_V2_12_3_R10_PROPRE.md"):
+        source = SUPPORT_DIR / name
+        if source.exists():
+            shutil.copy2(source, documentation_dir / name)
+
+    audit_dir = ROOT / "AUDIT_R10"
+    audit_dir.mkdir(exist_ok=True)
+    for name in ("README.md", "PROMPT_CLAUDE_V2_12_3_R10.md", "COMPLETE.txt"):
+        source = HERE / name
+        if source.exists():
+            shutil.copy2(source, audit_dir / name)
 
 
 def create_reference_databases() -> None:
