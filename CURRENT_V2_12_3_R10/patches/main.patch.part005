@@ -1,0 +1,262 @@
++            line_h = 13 if dense_table else 16
++            normal = QFont("Arial", 5 if dense_table else 7)
++            bold = QFont("Arial", 6 if dense_table else 8)
+             bold.setBold(True)
+-            title_font = QFont("Arial", 14)
++            title_font = QFont("Arial", 12 if dense_table else 14)
+             title_font.setBold(True)
+ 
+             def new_page():
+@@ -3046,9 +3505,13 @@
+                 painter.drawText(int(x), int(yy), text)
+ 
+             available = page_w - margin * 2
+-            widths = [70, 60, 110, 80, 55, 80, 80, 42, 65][:len(headers)]
+-            total = sum(widths) or 1
+-            widths = [int(w * available / total) for w in widths]
++            # Une largeur est calculée pour chaque colonne. L'ancienne liste fixe
++            # de neuf largeurs tronquait silencieusement les colonnes suivantes.
++            weights = [max(5, min(22, len(str(label)) + 2)) for _key, label in headers]
++            total = sum(weights) or 1
++            widths = [max(20, int(weight * available / total)) for weight in weights]
++            if widths:
++                widths[-1] += available - sum(widths)
+             x_positions = [margin]
+             for width in widths[:-1]:
+                 x_positions.append(x_positions[-1] + width)
+@@ -3213,14 +3676,18 @@
+             return str(value)
+ 
+     def chrono_export_metric_order(self):
++        """Ordre officiel des temps dans les rapports opérateur.
++
++        Les rebonds d'ouverture restent enregistrés en base et disponibles dans
++        l'oscillogramme, mais ne figurent pas dans les deux feuilles de synthèse
++        demandées par l'utilisateur.
++        """
+         return [
+             "enclenchement",
+             "transfert_travail",
+-            "rebond_repos_ouverture",
+             "rebond_travail",
+             "declenchement",
+             "transfert_repos",
+-            "rebond_travail_ouverture",
+             "rebond_repos",
+         ]
+ 
+@@ -3228,11 +3695,9 @@
+         labels = {
+             "enclenchement": "Temps d'Enclenchement {inv} (ms)",
+             "transfert_travail": "Temps de transfère {inv} (ms)",
+-            "rebond_repos_ouverture": "Temps Rebond Repos Ouverture {inv} (ms)",
+             "rebond_travail": "Temps Rebond Travail Fermeture {inv} (ms)",
+             "declenchement": "Temps de Déclenchement {inv} (ms)",
+             "transfert_repos": "Temps de transfère {inv} retour (ms)",
+-            "rebond_travail_ouverture": "Temps Rebond Travail Ouverture {inv} (ms)",
+             "rebond_repos": "Temps Rebond Repos Fermeture {inv} (ms)",
+         }
+         return labels.get(metric, str(metric)).format(inv=inv)
+@@ -3256,7 +3721,8 @@
+             int(record["nb_inverseurs"] or 0),
+         )
+ 
+-    def chrono_export_measure_cards(self, records):
++    def chrono_export_group_data(self, records):
++        """Regroupe BE/BR ou enclenchement/déclenchement par lot/relais/SN."""
+         groups = {}
+         for record in records:
+             key = self.chrono_export_group_key(record)
+@@ -3280,40 +3746,207 @@
+                 if not isinstance(item, dict):
+                     continue
+                 metric = str(item.get("metric", "") or "")
+-                if not metric:
++                if metric not in self.chrono_export_metric_order():
+                     continue
+-                inv = int(item.get("inverseur") or 0)
++                try:
++                    inv = int(item.get("inverseur") or 0)
++                except Exception:
++                    inv = 0
+                 if inv < 1:
+                     continue
+                 group["metrics"][(inv, metric)] = {
+                     "value": item.get("temps_ms"),
+                     "sanction": self.chrono_export_sanction_for_metric(metric, record),
+                 }
++        return list(groups.values())
+ 
+-        cards = []
+-        for group in groups.values():
+-            record = group["record"]
+-            relay_type = str(record["relay_type"] or self.chrono_relay_type()).upper()
+-            result = "DEFAUT" if any(value == "DEFAUT" for value in group["resultats"]) else "OK"
+-            rows = [
+-                ["Lot", "", record["lot"]],
+-                ["Date du test", "", record["date_test"]],
+-                ["Relais", "", record["relais"]],
+-                ["Ambiance", "", record["ambiance_c"]],
+-                ["Nom du Test", "", record["nom_test"]],
+-                ["Numéro de Relais", "", record["sn"]],
+-                ["Résultat du test", "", result],
++    def chrono_export_find_voltage(self, chrono_record, voltage_records, used_voltage_ids):
++        """Choisit la mesure tension la plus récente correspondant au même essai."""
++        candidates = []
++        for voltage in voltage_records:
++            vid = int(voltage["id"] or 0)
++            if vid in used_voltage_ids:
++                continue
++            if str(voltage["lot"] or "") != str(chrono_record["lot"] or ""):
++                continue
++            if str(voltage["sn"] or "") != str(chrono_record["sn"] or ""):
++                continue
++            vr = str(voltage["relais"] or "").strip()
++            cr = str(chrono_record["relais"] or "").strip()
++            if vr and cr and vr != cr:
++                continue
++            exact_test = int(
++                bool(str(voltage["nom_test"] or "").strip())
++                and str(voltage["nom_test"] or "").strip() == str(chrono_record["nom_test"] or "").strip()
++            )
++            candidates.append((exact_test, str(voltage["timestamp"] or ""), vid, voltage))
++        if not candidates:
++            return None
++        candidates.sort(key=lambda item: (item[0], item[1], item[2]))
++        selected = candidates[-1][3]
++        used_voltage_ids.add(int(selected["id"] or 0))
++        return selected
++
++    def chrono_export_base_rows(self, record, chrono_result, voltage_result):
++        return [
++            ["Lot", "", record["lot"]],
++            ["Date du test", "", record["date_test"]],
++            ["Relais", "", record["relais"]],
++            ["Ambiance", "", record["ambiance_c"]],
++            ["Nom du Test", "", record["nom_test"]],
++            ["Numéro de Relais", "", record["sn"]],
++            ["Résultat chronométrie", "", chrono_result],
++            ["Résultat tensions", "", voltage_result],
++        ]
++
++    def chrono_export_time_rows(self, metrics, nb_inverseurs):
++        rows = []
++        for inv in range(1, max(1, min(4, int(nb_inverseurs or 1))) + 1):
++            for metric in self.chrono_export_metric_order():
++                data = metrics.get((inv, metric), {})
++                rows.append([
++                    self.chrono_export_metric_label(metric, inv),
++                    data.get("sanction", ""),
++                    self.chrono_export_value_ms(data.get("value")),
++                ])
++        return rows
++
++    def chrono_export_global_voltage_rows(self, voltage, detailed=False):
++        if detailed:
++            pickup_label = "Tension d'Enclenchement (globale)"
++            dropout_label = "Tension de Rappel (globale)"
++        else:
++            pickup_label = "Tension d'Enclenchement"
++            dropout_label = "Tension de Rappel"
++        if voltage is None:
++            return [
++                [pickup_label, "", "--"],
++                [dropout_label, "", "--"],
+             ]
+-            for inv in range(1, max(1, min(4, int(group["nb_inverseurs"]))) + 1):
+-                for metric in self.chrono_export_metric_order():
+-                    data = group["metrics"].get((inv, metric), {})
+-                    rows.append([
+-                        self.chrono_export_metric_label(metric, inv),
+-                        data.get("sanction", ""),
+-                        self.chrono_export_value_ms(data.get("value")),
+-                    ])
+-            cards.append(rows)
+-        return cards
++        return [
++            [
++                pickup_label,
++                str(voltage["pickup_plausibility_status"] or ""),
++                self.chrono_export_voltage_value(voltage["pickup_global_v"]),
++            ],
++            [
++                dropout_label,
++                str(voltage["dropout_plausibility_status"] or ""),
++                self.chrono_export_voltage_value(voltage["dropout_global_v"]),
++            ],
++        ]
++
++    def chrono_export_individual_voltage_rows(self, voltage, nb_inverseurs):
++        pickup = self.chrono_json_dict(voltage["pickup_json"]) if voltage is not None else {}
++        dropout = self.chrono_json_dict(voltage["dropout_json"]) if voltage is not None else {}
++        rows = []
++        for inv in range(1, max(1, min(4, int(nb_inverseurs or 1))) + 1):
++            p = pickup.get(str(inv), pickup.get(inv))
++            d = dropout.get(str(inv), dropout.get(inv))
++            rows.append([
++                f"Tension d'Enclenchement inverseur {inv}",
++                "",
++                self.chrono_export_voltage_value(p),
++            ])
++            rows.append([
++                f"Tension de Rappel inverseur {inv}",
++                "",
++                self.chrono_export_voltage_value(d),
++            ])
++        return rows
++
++    def chrono_export_measure_sheets(self, records, voltage_records=None):
++        """Construit les deux feuilles officielles demandées pour chaque SN."""
++        voltage_records = list(voltage_records or [])
++        used_voltage_ids = set()
++        summary_cards = []
++        detail_cards = []
++
++        for group in self.chrono_export_group_data(records):
++            record = group["record"]
++            chrono_result = "DEFAUT" if any(v == "DEFAUT" for v in group["resultats"]) else "OK"
++            voltage = self.chrono_export_find_voltage(record, voltage_records, used_voltage_ids)
++            voltage_result = str(voltage["resultat"] or "") if voltage is not None else "Aucune mesure tension associée"
++            nb = max(group["nb_inverseurs"], int(voltage["nb_inverseurs"] or 1) if voltage is not None else 1)
++            base_rows = self.chrono_export_base_rows(record, chrono_result, voltage_result)
++            time_rows = self.chrono_export_time_rows(group["metrics"], nb)
++            summary_cards.append(
++                base_rows
++                + self.chrono_export_global_voltage_rows(voltage, detailed=False)
++                + time_rows
++            )
++            detail_cards.append(
++                base_rows
++                + self.chrono_export_global_voltage_rows(voltage, detailed=True)
++                + self.chrono_export_individual_voltage_rows(voltage, nb)
++                + time_rows
++            )
++
++        # Une tension peut exister sans chronométrie : elle reste visible et les
++        # temps sont explicitement notés "--" au lieu de disparaître du rapport.
++        for voltage in voltage_records:
++            vid = int(voltage["id"] or 0)
++            if vid in used_voltage_ids:
++                continue
++            pseudo = voltage
++            nb = max(1, min(4, int(voltage["nb_inverseurs"] or 1)))
++            base_rows = self.chrono_export_base_rows(
++                pseudo,
++                "Aucune mesure chronométrie associée",
++                str(voltage["resultat"] or ""),
++            )
++            time_rows = self.chrono_export_time_rows({}, nb)
++            summary_cards.append(
++                base_rows
++                + self.chrono_export_global_voltage_rows(voltage, detailed=False)
++                + time_rows
++            )
++            detail_cards.append(
++                base_rows
++                + self.chrono_export_global_voltage_rows(voltage, detailed=True)
++                + self.chrono_export_individual_voltage_rows(voltage, nb)
++                + time_rows
++            )
++        return summary_cards, detail_cards
++
++    def chrono_export_measure_cards(self, records, voltage_records=None):
