@@ -1,0 +1,212 @@
++        """Construit le message opérateur lorsqu'aucun passage global n'est validé."""
++        mode = str(getattr(self, "voltage_active_scan", "") or "").upper()
++        if mode not in ("PICKUP", "DROPOUT"):
++            mode = "PICKUP" if str(getattr(self, "voltage_requested_mode", "")).upper() == "PICKUP" else "DROPOUT"
++        relay_type = self.voltage_relay_type()
++        nb = int(self.spinBox_voltage_nb_inverseurs.value())
++        vmax = self.voltage_run_setting("vmax_v", self.doubleSpinBox_voltage_vmax)
++        stable_ms = int(self.spinBox_voltage_stable_ms.value())
++        values = list(getattr(self, "contacts_known_values", [None] * 8))
++        while len(values) < 8:
++            values.append(None)
++
++        target_work = mode == "PICKUP"
++        expected_r = "0" if target_work else "1"
++        expected_t = "1" if target_work else "0"
++        failures = []
++        states = []
++        for index in range(nb):
++            inv = index + 1
++            r_value = None if values[index] is None else str(values[index])
++            t_value = None if values[4 + index] is None else str(values[4 + index])
++            states.append(
++                f"I{inv}: R{inv}={self.voltage_contact_state_text(r_value)}, "
++                f"T{inv}={self.voltage_contact_state_text(t_value)}"
++            )
++            issues = []
++            if r_value is None:
++                issues.append(f"R{inv} inconnu")
++            elif r_value != expected_r:
++                issues.append(f"R{inv} encore fermé" if expected_r == "0" else f"R{inv} non fermé")
++            if t_value is None:
++                issues.append(f"T{inv} inconnu")
++            elif t_value != expected_t:
++                issues.append(f"T{inv} non fermé" if expected_t == "1" else f"T{inv} encore fermé")
++            if issues:
++                failures.append(f"Inverseur {inv} : " + ", ".join(issues))
++
++        if mode == "PICKUP":
++            title = f"ÉCHEC COLLAGE / BE À VMAX ({vmax:.3f} V)"
++            target_text = "position travail attendue : R ouverts et T fermés"
++        elif relay_type == "BISTABLE":
++            title = f"ÉCHEC DÉCLENCHEMENT / BR À VMAX ({vmax:.3f} V)"
++            target_text = "position repos attendue : R fermés et T ouverts"
++        else:
++            title = "ÉCHEC DÉCOLLAGE À 0 V"
++            target_text = "position repos attendue : R fermés et T ouverts"
++
++        if failures:
++            detail = "Contacts bloquants :\n- " + "\n- ".join(failures)
++        else:
++            detail = (
++                f"Les contacts sont actuellement dans la position demandée, mais la position globale "
++                f"n'a pas été stable pendant {stable_ms} ms avant la fin du délai. "
++                "Cause possible : rebonds persistants ou basculement trop tardif."
++            )
++        state_text = "États finaux : " + " | ".join(states) if states else "États finaux : aucun contact sélectionné."
++        return title, f"{target_text}.\n\n{detail}\n\n{state_text}"
++
+     def voltage_contacts_expected(self, mode):
+         nb = int(self.spinBox_voltage_nb_inverseurs.value())
+         values = list(getattr(self, "contacts_known_values", []))
+@@ -9661,10 +10843,21 @@
+                 raise ValueError("La durée de retour BE/BR doit être au moins 0,3 s.")
+             if float(self.doubleSpinBox_voltage_interphase_s.value()) < 3.0:
+                 raise ValueError("L'attente entre opérations doit être au moins 3,0 s pour laisser l'EA valider la seconde rampe.")
++            max_duration_s = self.voltage_update_ramp_limits()
++            for label, spin in (
++                ("montée BE", self.doubleSpinBox_voltage_ramp_up_s),
++                ("retour BE/BR", self.doubleSpinBox_voltage_ramp_down_s),
++            ):
++                if float(spin.value()) > max_duration_s + 1e-9:
++                    raise ValueError(
++                        f"Durée de {label} trop longue pour la pente minimale EA : "
++                        f"maximum {max_duration_s:.3f} s avec Vmax={self.doubleSpinBox_voltage_vmax.value():.3f} V."
++                    )
+         except Exception as exc:
+             QMessageBox.warning(self.window, "Collage / décollage", str(exc))
+             return
+ 
++        self.voltage_capture_run_settings()
+         self.voltage_requested_mode = str(requested_mode).upper()
+         self.voltage_active_scan = ""
+         self._voltage_bistable_pickup_prepositioned = False
+@@ -9680,6 +10873,10 @@
+         self.voltage_capture_policy = ""
+         self.voltage_effective_ramp_s = {"PICKUP": None, "DROPOUT": None}
+         self.voltage_ramp_readbacks = {"PICKUP": {}, "DROPOUT": {}}
++        # Chaque essai repart avec un état métrologique et sécurité indépendant.
++        # Sans cette remise à zéro, un verdict de l'essai précédent pourrait
++        # contaminer la sauvegarde suivante.
++        self.voltage_reset_assessment_state()
+         if self.voltage_requested_mode in ("PICKUP", "CYCLE"):
+             self.voltage_results = {"PICKUP": {}, "DROPOUT": {}}
+             self.voltage_raw_results = {"PICKUP": {}, "DROPOUT": {}}
+@@ -9693,9 +10890,9 @@
+         self.voltage_update_button_states()
+         try:
+             self.ea_psu.set_remote()
+-            self.ea_psu.stop_generator(leave_mode=True)
+-            self.ea_psu.output(False)
+-            self.ea_psu.send(f"CURR {self.doubleSpinBox_voltage_current_limit.value():.6f}")
++            if not self.voltage_stop_ea_and_confirm("préparation avant mesure", show_alert=False):
++                raise RuntimeError("L'arrêt initial de l'alimentation EA n'est pas confirmé.")
++            self.ea_psu.send(f"CURR {self.voltage_run_setting('current_limit_a', self.doubleSpinBox_voltage_current_limit):.6f}")
+             self.ea_psu.send("POW MAX")
+             self.ea_psu.send("VOLT 0")
+             self.send_command("VOLTAGE_SCAN;CANCEL")
+@@ -9723,9 +10920,11 @@
+         target_position = str(target_position).upper()
+         coil = "BR" if target_position == "REST" else "BE"
+         try:
+-            vmax = float(self.doubleSpinBox_voltage_vmax.value())
+-            self.ea_psu.stop_generator(leave_mode=True)
+-            self.ea_psu.send(f"CURR {self.doubleSpinBox_voltage_current_limit.value():.6f}")
++            vmax = self.voltage_run_setting("vmax_v", self.doubleSpinBox_voltage_vmax)
++            # L'arrêt initial a déjà confirmé SEL=NONE. Pour ce prépositionnement
++            # statique, ne pas envoyer WAVE:STAT STOP hors mode générateur.
++            self.ea_psu.send("FUNC:GEN:SEL NONE")
++            self.ea_psu.send(f"CURR {self.voltage_run_setting('current_limit_a', self.doubleSpinBox_voltage_current_limit):.6f}")
+             self.ea_psu.send(f"VOLT {vmax:.6f}")
+             self.ea_psu.output(True)
+             self.voltage_set_coil_hold(coil)
+@@ -9734,8 +10933,9 @@
+                 if not self.voltage_test_running:
+                     return
+                 self.voltage_set_coil_hold("OFF")
+-                self.ea_psu.output(False)
+-                self.ea_psu.send("VOLT 0")
++                if not self.voltage_stop_ea_and_confirm("fin prépositionnement bistable", show_alert=False):
++                    self.voltage_abort_test("Prépositionnement : arrêt EA non confirmé.")
++                    return
+                 QTimer.singleShot(350, callback)
+             QTimer.singleShot(350, finish_preposition)
+         except Exception as exc:
+@@ -9758,8 +10958,8 @@
+             self.voltage_active_scan = "PICKUP"
+             self.voltage_configure_ramp(
+                 0.0,
+-                self.doubleSpinBox_voltage_vmax.value(),
+-                self.doubleSpinBox_voltage_ramp_up_s.value(),
++                self.voltage_run_setting("vmax_v", self.doubleSpinBox_voltage_vmax),
++                self.voltage_run_setting("ramp_up_s", self.doubleSpinBox_voltage_ramp_up_s),
+                 mode="PICKUP",
+                 nb_inverseurs=nb,
+             )
+@@ -9773,10 +10973,10 @@
+             self.voltage_preposition_bistable("WORK", self.voltage_begin_dropout)
+             return
+         try:
+-            vmax = float(self.doubleSpinBox_voltage_vmax.value())
++            vmax = self.voltage_run_setting("vmax_v", self.doubleSpinBox_voltage_vmax)
+             self.voltage_set_coil_hold("BE")
+             self.ea_psu.set_remote()
+-            self.ea_psu.send(f"CURR {self.doubleSpinBox_voltage_current_limit.value():.6f}")
++            self.ea_psu.send(f"CURR {self.voltage_run_setting('current_limit_a', self.doubleSpinBox_voltage_current_limit):.6f}")
+             self.ea_psu.send(f"VOLT {vmax:.6f}")
+             self.ea_psu.output(True)
+             self.label_voltage_status.setText(f"Préconditionnement monostable à {vmax:.3f} V - attente position travail.")
+@@ -9799,8 +10999,8 @@
+                 # En bistable le second champ de l'IHM est bien la durée de montée BR.
+                 self.voltage_configure_ramp(
+                     0.0,
+-                    self.doubleSpinBox_voltage_vmax.value(),
+-                    self.doubleSpinBox_voltage_ramp_down_s.value(),
++                    self.voltage_run_setting("vmax_v", self.doubleSpinBox_voltage_vmax),
++                    self.voltage_run_setting("ramp_down_s", self.doubleSpinBox_voltage_ramp_down_s),
+                     mode="DROPOUT",
+                     nb_inverseurs=nb,
+                     not_before=not_before,
+@@ -9808,9 +11008,9 @@
+             else:
+                 self.voltage_set_coil_hold("BE")
+                 self.voltage_configure_ramp(
+-                    self.doubleSpinBox_voltage_vmax.value(),
++                    self.voltage_run_setting("vmax_v", self.doubleSpinBox_voltage_vmax),
+                     0.0,
+-                    self.doubleSpinBox_voltage_ramp_down_s.value(),
++                    self.voltage_run_setting("ramp_down_s", self.doubleSpinBox_voltage_ramp_down_s),
+                     mode="DROPOUT",
+                     nb_inverseurs=nb,
+                     not_before=not_before,
+@@ -9829,7 +11029,7 @@
+         )
+         self.ea_psu.configure_voltage_ramp(
+             start_v, end_v, duration_s, hold_s,
+-            self.doubleSpinBox_voltage_current_limit.value(),
++            self.voltage_run_setting("current_limit_a", self.doubleSpinBox_voltage_current_limit),
+         )
+         self.voltage_pending_ramp = {
+             "start_v": start_v,
+@@ -9902,27 +11102,29 @@
+             interphase_text = ""
+             if pending.get("not_before") is not None and self.voltage_interphase_origin_monotonic is not None:
+                 self.voltage_interphase_actual_s = self.voltage_ramp_started_monotonic - self.voltage_interphase_origin_monotonic
+-                requested_interphase = float(self.doubleSpinBox_voltage_interphase_s.value())
++                requested_interphase = self.voltage_run_setting("interphase_s", self.doubleSpinBox_voltage_interphase_s)
+                 interphase_text = f" Attente réelle : {self.voltage_interphase_actual_s:.3f} s (demandée {requested_interphase:.3f} s)."
+             self.voltage_ramp_info = pending
+             self.voltage_progress_timer.start()
++            self.voltage_ea_monitor_timer.start()
+             self.label_voltage_status.setText(
+                 f"Rampe {pending['mode']} EN COURS : {pending['start_v']:.3f} → "
+                 f"{pending['end_v']:.3f} V en {pending['duration_s']:.3f} s.{interphase_text}"
+             )
+             timeout_ms = int((pending["duration_s"] + pending["hold_s"] + 3.0) * 1000)
+             self.voltage_timeout_timer.start(timeout_ms)
+-            QTimer.singleShot(200, self.voltage_check_generator_running)
++            QTimer.singleShot(150, self.voltage_check_generator_running)
+         except Exception as exc:
+             self.voltage_abort_test(f"Départ rampe EA impossible : {exc}")
+ 
+     def voltage_check_generator_running(self):
