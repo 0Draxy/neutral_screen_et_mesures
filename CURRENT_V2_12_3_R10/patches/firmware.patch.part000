@@ -1,0 +1,143 @@
+--- rp2040_relais_28vdc_precision_v2_12_2_ADS1115_GP26_RGB.ino
++++ rp2040_relais_28vdc_precision_v2_12_3_ADS1115_GP26_RGB.ino
+@@ -1,7 +1,7 @@
+ /*
+-  RP2040 - Pilotage relais 28 VDC - V2.12.2 selection tension Neutral screen + LED RGB etats IHM
++  RP2040 - Pilotage relais 28 VDC - V2.12.3 R8 selection Neutral screen + chronometrie EA
+ 
+-  Etat fonctionnel V2.12.2 :
++  Etat fonctionnel V2.12.3 R8 :
+   - BE sur GP14, BR sur GP15 et selection 28/32 V sur GP26.
+   - LED RGB interne WS2812 sur GP16 pilotee par commandes serie LED;...
+   - Sequence Neutral Screen non bloquante avec settle, pulse et retombee relais.
+@@ -10,7 +10,7 @@
+   - Mesure chronometrique BE/BR et monostable avec capture GPIO rapide.
+   - Horodatage apres lecture gpio_get_all(), overflow explicite et LOOP_MAX_US.
+   - Mesure tension : capture au premier passage complet avant rebonds, puis validation stable.
+-  - Trame HELLO annonce V2_12_2 a l'IHM.
++  - Trame HELLO annonce V2_12_3_R8 et la capacite EA_CHRONO_NO_GP26.
+ 
+   Principe inchange :
+   - Le PC/IHM ne pilote jamais les fronts en temps reel.
+@@ -22,13 +22,13 @@
+   Commandes serie :
+     START_US;MONO;ON_US;OFF_US;SET_US;RESET_US;CYCLES
+     START_US;BISTABLE;ON_US;OFF_US;SET_US;RESET_US;CYCLES
+-    PULSE_US;BE;DUREE_US      -> selection tension haute puis pulse BE
+-    PULSE_US;BR;DUREE_US      -> selection tension haute puis pulse BR
++    PULSE_US;BE;DUREE_US[;EA] -> pulse BE ; suffixe EA = ne pas commuter GP26
++    PULSE_US;BR;DUREE_US[;EA] -> pulse BR ; suffixe EA = ne pas commuter GP26
+     PULSE_US;BEBR;DUREE_US    -> selection tension basse puis pulse BE+BR
+-    MEASURE_CONTACTS;BE;CAPTURE_US;PULSE_US;NB_INV  -> chronometrie contacts BE
+-    MEASURE_CONTACTS;BR;CAPTURE_US;PULSE_US;NB_INV  -> chronometrie contacts BR
+-    MEASURE_MONO;ON;CAPTURE_US;HOLD_US;NB_INV       -> chronometrie monostable enclenchement GP14
+-    MEASURE_MONO;OFF;CAPTURE_US;HOLD_US;NB_INV      -> chronometrie monostable declenchement GP14
++    MEASURE_CONTACTS;BE;CAPTURE_US;PULSE_US;NB_INV[;EA]  -> chronometrie contacts BE
++    MEASURE_CONTACTS;BR;CAPTURE_US;PULSE_US;NB_INV[;EA]  -> chronometrie contacts BR
++    MEASURE_MONO;ON;CAPTURE_US;HOLD_US;NB_INV[;EA]       -> chronometrie monostable enclenchement GP14
++    MEASURE_MONO;OFF;CAPTURE_US;HOLD_US;NB_INV[;EA]      -> chronometrie monostable declenchement GP14
+     VOLTAGE_CFG;RATIO_U6;OFFSET_MV;STABLE_US          -> calibration ADS1115
+     VOLTAGE_SCAN;ARM;PICKUP|DROPOUT;NB_INV            -> armement mesure tension
+     VOLTAGE_SCAN;CANCEL                                -> annulation mesure tension
+@@ -1056,7 +1056,10 @@
+   String captureTxt = getToken(cmd, ';', 2);
+   String pulseTxt = getToken(cmd, ';', 3);
+   String nbInvTxt = getToken(cmd, ';', 4);
++  String sourceTxt = getToken(cmd, ';', 5);
+   actionTxt.trim(); actionTxt.toUpperCase();
++  sourceTxt.trim(); sourceTxt.toUpperCase();
++  bool sourceEA = (sourceTxt == "EA");
+ 
+   uint64_t captureUs = 0ULL;
+   uint64_t pulseUs = 0ULL;
+@@ -1098,10 +1101,15 @@
+   envoyerMeasureBegin(actionTxt, captureUs, pulseUs, nbInv, startBits);
+   Serial.flush();
+ 
+-  // La selection voie haute est preparee avant t0. Le temps mesure commence
+-  // au front de commande bobine BE/BR, pas au collage du relais de selection.
+-  appliquerSelection32(true);
+-  delayMicroseconds((uint32_t)NEUTRAL_SELECTION_SETTLE_US);
++  // En mode historique, GP26 selectionne la voie fixe haute avant t0.
++  // En mode EA, la tension est fournie par l'alimentation pilotee par le PC :
++  // GP26 reste inactif et aucun temps de collage du relais 28/32 V n'est ajoute.
++  if (sourceEA) {
++    appliquerSelection32(false);
++  } else {
++    appliquerSelection32(true);
++    delayMicroseconds((uint32_t)NEUTRAL_SELECTION_SETTLE_US);
++  }
+ 
+   noInterrupts();
+   appliquerSorties(pattern | 0x04u);
+@@ -1144,7 +1152,7 @@
+   appliquerSorties(0x00u);
+   interrupts();
+ 
+-  appliquerSelection32(false);
++  if (!sourceEA) appliquerSelection32(false);
+   appliquerBitsContacts(composerBitsContactsDepuisGpio());
+   contactsChangedPending = true;
+   sortiesChangedPending = true;
+@@ -1160,7 +1168,10 @@
+   String captureTxt = getToken(cmd, ';', 2);
+   String holdTxt = getToken(cmd, ';', 3);
+   String nbInvTxt = getToken(cmd, ';', 4);
++  String sourceTxt = getToken(cmd, ';', 5);
+   actionTxt.trim(); actionTxt.toUpperCase();
++  sourceTxt.trim(); sourceTxt.toUpperCase();
++  bool sourceEA = (sourceTxt == "EA");
+ 
+   uint64_t captureUs = 0ULL;
+   uint64_t holdUs = 0ULL;
+@@ -1205,7 +1216,7 @@
+   Serial.print(";NB_INV="); Serial.print(nbInv);
+   Serial.print(";START_BITS=");
+ 
+-  appliquerSelection32(true);
++  appliquerSelection32(sourceEA ? false : true);
+   if (actionTxt == "ON") {
+     appliquerSorties(0x00u);
+     delayMicroseconds((uint32_t)holdUs);
+@@ -1262,7 +1273,7 @@
+   }
+   interrupts();
+ 
+-  if (actionTxt == "OFF") {
++  if (actionTxt == "OFF" && !sourceEA) {
+     appliquerSelection32(false);
+   }
+   appliquerBitsContacts(composerBitsContactsDepuisGpio());
+@@ -1549,7 +1560,10 @@
+ void traiterPulseUs(const String &cmd) {
+   String typeTxt = getToken(cmd, ';', 1);
+   String dureeTxt = getToken(cmd, ';', 2);
++  String sourceTxt = getToken(cmd, ';', 3);
+   typeTxt.trim(); typeTxt.toUpperCase();
++  sourceTxt.trim(); sourceTxt.toUpperCase();
++  bool sourceEA = (sourceTxt == "EA");
+ 
+   uint64_t dureeUs = 0ULL;
+   if (!parseUint64(dureeTxt, dureeUs)) { Serial.println("ERREUR;PULSE_US_INVALIDE"); return; }
+@@ -1557,10 +1571,10 @@
+ 
+   if (typeTxt == "BE") {
+     ledRgbSetMode(LED_MODE_PULSE_BE);
+-    demarrerPulseNeutral(0x01, dureeUs, "BE", true);
++    demarrerPulseNeutral(0x01, dureeUs, "BE", sourceEA ? false : true);
+   } else if (typeTxt == "BR") {
+     ledRgbSetMode(LED_MODE_PULSE_BR);
+-    demarrerPulseNeutral(0x02, dureeUs, "BR", true);
++    demarrerPulseNeutral(0x02, dureeUs, "BR", sourceEA ? false : true);
+   } else if (typeTxt == "BEBR" || typeTxt == "BE/BR") {
+     ledRgbSetMode(LED_MODE_PULSE_BEBR);
+     demarrerPulseNeutral(0x01 | 0x02, dureeUs, "BEBR", false);
+@@ -1826,7 +1840,7 @@
+   Serial.begin(921600);
+   delay(500);
+ 
+-  Serial.println("RP2040_RELAIS_28VDC_PRET;V2_12_2;SELECTION_TENSION_BASSE_HAUTE_INFO_GP26;LED_RGB_GP16;LED_COMMANDS;MEASURE_CONTACTS;MEASURE_MONO;ADS1115_GP0_GP1;VOLTAGE_MONO_BISTABLE;CALIBRATION_RAW;VOLTAGE_FIRST_PASSAGE;STABLE_CONFIRMATION;CAPTURE_QUALITY_50US");
++  Serial.println("RP2040_RELAIS_28VDC_PRET;V2_12_3_R8;EA_CHRONO_NO_GP26;SELECTION_TENSION_BASSE_HAUTE_INFO_GP26;LED_RGB_GP16;LED_COMMANDS;MEASURE_CONTACTS;MEASURE_MONO;ADS1115_GP0_GP1;VOLTAGE_MONO_BISTABLE;CALIBRATION_RAW;VOLTAGE_FIRST_PASSAGE;STABLE_CONFIRMATION;CAPTURE_QUALITY_50US");
+   envoyerStatus("BOOT");
+ }
+ 
