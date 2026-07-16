@@ -17,7 +17,7 @@ Repères visibles contrôlés :
 - version affichée : **V 2.12.3 R10** ;
 - titre de fenêtre : **Cycleur - Neutral Screen - V2.12.3 R10 - (Par O.MARECHAL)**.
 
-## Reconstruction des trois fichiers principaux
+## Reconstruction de la R10
 
 Les patches lisibles de ce dossier transforment les fichiers V2.12.2 déjà présents à la racine du dépôt en fichiers R10 :
 
@@ -27,13 +27,19 @@ python CURRENT_V2_12_3_R10/apply_r10.py
 
 Sous Windows, lancer cette commande dans **Git Bash**, car le script utilise l’outil standard `patch`.
 
-Fichiers produits :
+Le script :
+
+1. reconstruit le Python principal, le `.ui` et le firmware R10 ;
+2. contrôle leurs SHA-256 ;
+3. installe à la racine le BAT, les tests, le schéma SQLite et les autres fichiers de support ;
+4. crée les deux bases SQLite `REFERENCE_VIDE` sans toucher aux bases utilisateur ;
+5. prépare les dossiers `DOCUMENTATION` et `AUDIT_R10`.
+
+Fichiers principaux produits :
 
 - `main_ihm_relais_rp2040_v2_12_3.py` ;
 - `ihm_relais_rp2040_28vdc_precision_v2_12_3.ui` ;
 - `rp2040_relais_28vdc_precision_v2_12_3_ADS1115_GP26_RGB.ino`.
-
-Le script contrôle les SHA-256 après reconstruction.
 
 ## Licence
 
