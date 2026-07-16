@@ -1,0 +1,379 @@
++       <property name="maximum">
++        <double>40.000000000000000</double>
++       </property>
++       <property name="singleStep">
++        <double>0.100000000000000</double>
++       </property>
++       <property name="value">
++        <double>28.000000000000000</double>
+        </property>
+       </widget>
+      </widget>
+@@ -7772,7 +7838,7 @@
+         <rect>
+          <x>10</x>
+          <y>22</y>
+-         <width>175</width>
++         <width>131</width>
+          <height>36</height>
+         </rect>
+        </property>
+@@ -7788,7 +7854,7 @@
+         <rect>
+          <x>195</x>
+          <y>22</y>
+-         <width>175</width>
++         <width>141</width>
+          <height>36</height>
+         </rect>
+        </property>
+@@ -7815,7 +7881,7 @@
+         <string>CYCLE COLLAGE + DÉCOLLAGE</string>
+        </property>
+       </widget>
+-      <widget class="QPushButton" name="pushButton_voltage_stop">
++      <widget class="QPushButton" name="pushButton_voltage_measure_all">
+        <property name="geometry">
+         <rect>
+          <x>615</x>
+@@ -7824,6 +7890,25 @@
+          <height>36</height>
+         </rect>
+        </property>
++       <property name="toolTip">
++        <string>Mesure les tensions puis règle automatiquement l’EA à la tension fixe de chronométrie. Aucun changement manuel de source.</string>
++       </property>
++       <property name="styleSheet">
++        <string>background-color: rgb(0,90,160); color: white; font-weight: bold;</string>
++       </property>
++       <property name="text">
++        <string>MESURER TOUT</string>
++       </property>
++      </widget>
++      <widget class="QPushButton" name="pushButton_voltage_stop">
++       <property name="geometry">
++        <rect>
++         <x>615</x>
++         <y>66</y>
++         <width>180</width>
++         <height>28</height>
++        </rect>
++       </property>
+        <property name="styleSheet">
+         <string>background-color: rgb(190,0,0); color: white; font-weight: bold;</string>
+        </property>
+@@ -7836,7 +7921,7 @@
+         <rect>
+          <x>10</x>
+          <y>66</y>
+-         <width>785</width>
++         <width>595</width>
+          <height>28</height>
+         </rect>
+        </property>
+@@ -7851,13 +7936,354 @@
+        </property>
+       </widget>
+      </widget>
++     <widget class="QGroupBox" name="groupBox_voltage_contacts">
++      <property name="geometry">
++       <rect>
++        <x>580</x>
++        <y>530</y>
++        <width>241</width>
++        <height>91</height>
++       </rect>
++      </property>
++      <property name="title">
++       <string>Etat des Contacts en direct </string>
++      </property>
++      <widget class="QLabel" name="label_voltage_contact_name_r1">
++       <property name="geometry">
++        <rect>
++         <x>8</x>
++         <y>20</y>
++         <width>22</width>
++         <height>20</height>
++        </rect>
++       </property>
++       <property name="styleSheet">
++        <string>color: rgb(0,120,55); font-weight: bold;</string>
++       </property>
++       <property name="text">
++        <string>R1</string>
++       </property>
++       <property name="alignment">
++        <set>Qt::AlignmentFlag::AlignCenter</set>
++       </property>
++      </widget>
++      <widget class="QLabel" name="label_voltage_led_r1">
++       <property name="geometry">
++        <rect>
++         <x>35</x>
++         <y>20</y>
++         <width>18</width>
++         <height>18</height>
++        </rect>
++       </property>
++       <property name="toolTip">
++        <string>R1 : état inconnu</string>
++       </property>
++       <property name="styleSheet">
++        <string>background-color: rgb(95,95,95); border: 1px solid rgb(55,55,55); border-radius: 9px; padding: 0px; margin: 0px;</string>
++       </property>
++       <property name="text">
++        <string/>
++       </property>
++       <property name="alignment">
++        <set>Qt::AlignmentFlag::AlignCenter</set>
++       </property>
++      </widget>
++      <widget class="QLabel" name="label_voltage_contact_name_r2">
++       <property name="geometry">
++        <rect>
++         <x>66</x>
++         <y>20</y>
++         <width>22</width>
++         <height>20</height>
++        </rect>
++       </property>
++       <property name="styleSheet">
++        <string>color: rgb(0,120,55); font-weight: bold;</string>
++       </property>
++       <property name="text">
++        <string>R2</string>
++       </property>
++       <property name="alignment">
++        <set>Qt::AlignmentFlag::AlignCenter</set>
++       </property>
++      </widget>
++      <widget class="QLabel" name="label_voltage_led_r2">
++       <property name="geometry">
++        <rect>
++         <x>93</x>
++         <y>20</y>
++         <width>18</width>
++         <height>18</height>
++        </rect>
++       </property>
++       <property name="toolTip">
++        <string>R2 : état inconnu</string>
++       </property>
++       <property name="styleSheet">
++        <string>background-color: rgb(95,95,95); border: 1px solid rgb(55,55,55); border-radius: 9px; padding: 0px; margin: 0px;</string>
++       </property>
++       <property name="text">
++        <string/>
++       </property>
++       <property name="alignment">
++        <set>Qt::AlignmentFlag::AlignCenter</set>
++       </property>
++      </widget>
++      <widget class="QLabel" name="label_voltage_contact_name_r3">
++       <property name="geometry">
++        <rect>
++         <x>124</x>
++         <y>20</y>
++         <width>22</width>
++         <height>20</height>
++        </rect>
++       </property>
++       <property name="styleSheet">
++        <string>color: rgb(0,120,55); font-weight: bold;</string>
++       </property>
++       <property name="text">
++        <string>R3</string>
++       </property>
++       <property name="alignment">
++        <set>Qt::AlignmentFlag::AlignCenter</set>
++       </property>
++      </widget>
++      <widget class="QLabel" name="label_voltage_led_r3">
++       <property name="geometry">
++        <rect>
++         <x>151</x>
++         <y>20</y>
++         <width>18</width>
++         <height>18</height>
++        </rect>
++       </property>
++       <property name="toolTip">
++        <string>R3 : état inconnu</string>
++       </property>
++       <property name="styleSheet">
++        <string>background-color: rgb(95,95,95); border: 1px solid rgb(55,55,55); border-radius: 9px; padding: 0px; margin: 0px;</string>
++       </property>
++       <property name="text">
++        <string/>
++       </property>
++       <property name="alignment">
++        <set>Qt::AlignmentFlag::AlignCenter</set>
++       </property>
++      </widget>
++      <widget class="QLabel" name="label_voltage_contact_name_r4">
++       <property name="geometry">
++        <rect>
++         <x>182</x>
++         <y>20</y>
++         <width>22</width>
++         <height>20</height>
++        </rect>
++       </property>
++       <property name="styleSheet">
++        <string>color: rgb(0,120,55); font-weight: bold;</string>
++       </property>
++       <property name="text">
++        <string>R4</string>
++       </property>
++       <property name="alignment">
++        <set>Qt::AlignmentFlag::AlignCenter</set>
++       </property>
++      </widget>
++      <widget class="QLabel" name="label_voltage_led_r4">
++       <property name="geometry">
++        <rect>
++         <x>209</x>
++         <y>20</y>
++         <width>18</width>
++         <height>18</height>
++        </rect>
++       </property>
++       <property name="toolTip">
++        <string>R4 : état inconnu</string>
++       </property>
++       <property name="styleSheet">
++        <string>background-color: rgb(95,95,95); border: 1px solid rgb(55,55,55); border-radius: 9px; padding: 0px; margin: 0px;</string>
++       </property>
++       <property name="text">
++        <string/>
++       </property>
++       <property name="alignment">
++        <set>Qt::AlignmentFlag::AlignCenter</set>
++       </property>
++      </widget>
++      <widget class="QLabel" name="label_voltage_contact_name_t1">
++       <property name="geometry">
++        <rect>
++         <x>8</x>
++         <y>60</y>
++         <width>22</width>
++         <height>20</height>
++        </rect>
++       </property>
++       <property name="styleSheet">
++        <string>color: rgb(180,0,0); font-weight: bold;</string>
++       </property>
++       <property name="text">
++        <string>T1</string>
++       </property>
++       <property name="alignment">
++        <set>Qt::AlignmentFlag::AlignCenter</set>
++       </property>
++      </widget>
++      <widget class="QLabel" name="label_voltage_led_t1">
++       <property name="geometry">
++        <rect>
++         <x>35</x>
++         <y>60</y>
++         <width>18</width>
++         <height>18</height>
++        </rect>
++       </property>
++       <property name="toolTip">
++        <string>T1 : état inconnu</string>
++       </property>
++       <property name="styleSheet">
++        <string>background-color: rgb(95,95,95); border: 1px solid rgb(55,55,55); border-radius: 9px; padding: 0px; margin: 0px;</string>
++       </property>
++       <property name="text">
++        <string/>
++       </property>
++       <property name="alignment">
++        <set>Qt::AlignmentFlag::AlignCenter</set>
++       </property>
++      </widget>
++      <widget class="QLabel" name="label_voltage_contact_name_t2">
++       <property name="geometry">
++        <rect>
++         <x>66</x>
++         <y>60</y>
++         <width>22</width>
++         <height>20</height>
++        </rect>
++       </property>
++       <property name="styleSheet">
++        <string>color: rgb(180,0,0); font-weight: bold;</string>
++       </property>
++       <property name="text">
++        <string>T2</string>
++       </property>
++       <property name="alignment">
++        <set>Qt::AlignmentFlag::AlignCenter</set>
++       </property>
++      </widget>
++      <widget class="QLabel" name="label_voltage_led_t2">
++       <property name="geometry">
++        <rect>
++         <x>93</x>
++         <y>60</y>
++         <width>18</width>
++         <height>18</height>
++        </rect>
++       </property>
++       <property name="toolTip">
++        <string>T2 : état inconnu</string>
++       </property>
++       <property name="styleSheet">
++        <string>background-color: rgb(95,95,95); border: 1px solid rgb(55,55,55); border-radius: 9px; padding: 0px; margin: 0px;</string>
++       </property>
++       <property name="text">
++        <string/>
++       </property>
++       <property name="alignment">
++        <set>Qt::AlignmentFlag::AlignCenter</set>
++       </property>
++      </widget>
++      <widget class="QLabel" name="label_voltage_contact_name_t3">
++       <property name="geometry">
++        <rect>
++         <x>124</x>
++         <y>60</y>
++         <width>22</width>
++         <height>20</height>
++        </rect>
++       </property>
++       <property name="styleSheet">
++        <string>color: rgb(180,0,0); font-weight: bold;</string>
++       </property>
++       <property name="text">
++        <string>T3</string>
++       </property>
++       <property name="alignment">
++        <set>Qt::AlignmentFlag::AlignCenter</set>
++       </property>
++      </widget>
++      <widget class="QLabel" name="label_voltage_led_t3">
++       <property name="geometry">
++        <rect>
++         <x>151</x>
++         <y>60</y>
++         <width>18</width>
++         <height>18</height>
++        </rect>
++       </property>
++       <property name="toolTip">
++        <string>T3 : état inconnu</string>
++       </property>
++       <property name="styleSheet">
++        <string>background-color: rgb(95,95,95); border: 1px solid rgb(55,55,55); border-radius: 9px; padding: 0px; margin: 0px;</string>
++       </property>
++       <property name="text">
++        <string/>
++       </property>
++       <property name="alignment">
++        <set>Qt::AlignmentFlag::AlignCenter</set>
++       </property>
++      </widget>
++      <widget class="QLabel" name="label_voltage_contact_name_t4">
++       <property name="geometry">
++        <rect>
