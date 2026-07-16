@@ -1,0 +1,174 @@
++            "lot": meta["lot"], "date_test": meta["date_test"], "relais": meta["relais"],
++            "ambiance_c": meta["ambiance_c"], "nom_test": meta["nom_test"], "sn": meta["sn"],
++            "relay_type": self.voltage_relay_type(),
++            "nb_inverseurs": int(self.spinBox_voltage_nb_inverseurs.value()),
++            "chrono_supply_v": self.voltage_run_setting("chrono_supply_v", self.doubleSpinBox_voltage_chrono_v),
++            "vmax_v": self.voltage_run_setting("vmax_v", self.doubleSpinBox_voltage_vmax),
++            "ramp_up_s": self.voltage_run_setting("ramp_up_s", self.doubleSpinBox_voltage_ramp_up_s),
++            "ramp_down_s": self.voltage_run_setting("ramp_down_s", self.doubleSpinBox_voltage_ramp_down_s),
++            "interphase_s": self.voltage_run_setting("interphase_s", self.doubleSpinBox_voltage_interphase_s),
++            "interphase_actual_s": self.voltage_interphase_actual_s,
++            "current_limit_a": self.voltage_run_setting("current_limit_a", self.doubleSpinBox_voltage_current_limit),
++            "stable_ms": int(self.spinBox_voltage_stable_ms.value()),
++            "capture_policy": self.voltage_capture_policy or "FIRST_PASSAGE",
++            "validation_policy": "STABLE_AFTER_CAPTURE",
++            "divider_ratio": float(cal.get("divider_ratio", 0)),
++            "offset_mv": int(cal.get("offset_mv", 0)),
++            "calibration_id": cal.get("id"),
++            "calibration_date": str(cal.get("calibration_date", "")),
++            "calibration_error_v": cal.get("check_error_v"),
++            "pickup_global_raw": pickup_raw.get("GLOBAL"),
++            "dropout_global_raw": dropout_raw.get("GLOBAL"),
++            "pickup_raw_json": json.dumps(pickup_raw, ensure_ascii=False),
++            "dropout_raw_json": json.dumps(dropout_raw, ensure_ascii=False),
++            "pickup_global_v": pickup_global,
++            "dropout_global_v": dropout_global,
++            "pickup_json": json.dumps(pickup, ensure_ascii=False),
++            "dropout_json": json.dumps(dropout, ensure_ascii=False),
++            "pickup_elapsed_s": pickup_elapsed_s,
++            "dropout_elapsed_s": dropout_elapsed_s,
++            "pickup_effective_ramp_s": self.voltage_effective_ramp_s.get("PICKUP"),
++            "dropout_effective_ramp_s": self.voltage_effective_ramp_s.get("DROPOUT"),
++            "pickup_time_json": json.dumps(pickup_times, ensure_ascii=False),
++            "dropout_time_json": json.dumps(dropout_times, ensure_ascii=False),
++            "ea_readback_json": json.dumps(self.voltage_ramp_readbacks, ensure_ascii=False),
++            "pickup_plausibility_status": str(pickup_pl.get("status", "")),
++            "dropout_plausibility_status": str(dropout_pl.get("status", "")),
++            "pickup_expected_elapsed_s": pickup_pl.get("expected_elapsed_s"),
++            "dropout_expected_elapsed_s": dropout_pl.get("expected_elapsed_s"),
++            "pickup_elapsed_error_s": pickup_pl.get("elapsed_error_s"),
++            "dropout_elapsed_error_s": dropout_pl.get("elapsed_error_s"),
++            "plausibility_json": json.dumps(self.voltage_plausibility, ensure_ascii=False),
++            "ea_stop_confirmed": 1 if stop.get("confirmed") is True else 0 if stop.get("confirmed") is False else -1,
++            "ea_final_output_state": str(stop.get("output_state", "")),
++            "ea_final_voltage_v": stop.get("measured_voltage_v"),
++            "ea_final_generator_state": str(stop.get("generator_state", "")),
++            "ea_stop_detail": stop_detail,
++            "resultat": result,
++            "timestamp": time.strftime("%Y-%m-%d %H:%M:%S"),
++        }
+         self.voltage_init_db()
++        columns = list(record.keys())
++        sql = (
++            "INSERT INTO mesures_tension_fonctionnement (" + ", ".join(columns) + ") "
++            "VALUES (" + ", ".join("?" for _ in columns) + ")"
++        )
+         with self.chrono_connect_db() as con:
+-            con.execute(
+-                """
+-                INSERT INTO mesures_tension_fonctionnement (
+-                    lot, date_test, relais, ambiance_c, nom_test, sn, relay_type,
+-                    nb_inverseurs, vmax_v, ramp_up_s, ramp_down_s, interphase_s, interphase_actual_s, current_limit_a,
+-                    stable_ms, capture_policy, validation_policy, divider_ratio, offset_mv,
+-                    calibration_id, calibration_date, calibration_error_v,
+-                    pickup_global_raw, dropout_global_raw, pickup_raw_json, dropout_raw_json,
+-                    pickup_global_v, dropout_global_v, pickup_json, dropout_json,
+-                    pickup_elapsed_s, dropout_elapsed_s,
+-                    pickup_effective_ramp_s, dropout_effective_ramp_s,
+-                    pickup_time_json, dropout_time_json, ea_readback_json,
+-                    resultat, timestamp
+-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+-                """,
+-                (
+-                    meta["lot"], meta["date_test"], meta["relais"], meta["ambiance_c"],
+-                    meta["nom_test"], meta["sn"], self.voltage_relay_type(),
+-                    int(self.spinBox_voltage_nb_inverseurs.value()),
+-                    float(self.doubleSpinBox_voltage_vmax.value()),
+-                    float(self.doubleSpinBox_voltage_ramp_up_s.value()),
+-                    float(self.doubleSpinBox_voltage_ramp_down_s.value()),
+-                    float(self.doubleSpinBox_voltage_interphase_s.value()),
+-                    self.voltage_interphase_actual_s,
+-                    float(self.doubleSpinBox_voltage_current_limit.value()),
+-                    int(self.spinBox_voltage_stable_ms.value()),
+-                    self.voltage_capture_policy or "FIRST_PASSAGE", "STABLE_AFTER_CAPTURE",
+-                    float(cal.get("divider_ratio", 0)), int(cal.get("offset_mv", 0)),
+-                    cal.get("id"), str(cal.get("calibration_date", "")), cal.get("check_error_v"),
+-                    pickup_raw.get("GLOBAL"), dropout_raw.get("GLOBAL"),
+-                    json.dumps(pickup_raw, ensure_ascii=False), json.dumps(dropout_raw, ensure_ascii=False),
+-                    pickup_global, dropout_global,
+-                    json.dumps(pickup, ensure_ascii=False), json.dumps(dropout, ensure_ascii=False),
+-                    pickup_elapsed_s, dropout_elapsed_s,
+-                    self.voltage_effective_ramp_s.get("PICKUP"), self.voltage_effective_ramp_s.get("DROPOUT"),
+-                    json.dumps(pickup_times, ensure_ascii=False), json.dumps(dropout_times, ensure_ascii=False),
+-                    json.dumps(self.voltage_ramp_readbacks, ensure_ascii=False),
+-                    result, time.strftime("%Y-%m-%d %H:%M:%S"),
+-                ),
+-            )
++            con.execute(sql, tuple(record[name] for name in columns))
+ 
+     def voltage_records_for_lot(self, lot):
+         self.voltage_init_db()
+         with self.chrono_connect_db() as con:
+             return con.execute(
+                 """
+-                SELECT lot, date_test, relais, ambiance_c, nom_test, sn, relay_type,
+-                       nb_inverseurs, vmax_v, ramp_up_s, ramp_down_s, interphase_s, interphase_actual_s, current_limit_a,
++                SELECT id, lot, date_test, relais, ambiance_c, nom_test, sn, relay_type,
++                       nb_inverseurs, vmax_v, ramp_up_s, ramp_down_s, interphase_s, interphase_actual_s, current_limit_a, chrono_supply_v,
+                        stable_ms, capture_policy, validation_policy, divider_ratio, offset_mv, calibration_id, calibration_date, calibration_error_v,
+                        pickup_global_raw, dropout_global_raw, pickup_raw_json, dropout_raw_json,
+                        pickup_global_v, dropout_global_v, pickup_json, dropout_json,
+                        pickup_elapsed_s, dropout_elapsed_s, pickup_effective_ramp_s, dropout_effective_ramp_s,
+-                       pickup_time_json, dropout_time_json, ea_readback_json, resultat, timestamp
++                       pickup_time_json, dropout_time_json, ea_readback_json,
++                       pickup_plausibility_status, dropout_plausibility_status,
++                       pickup_expected_elapsed_s, dropout_expected_elapsed_s,
++                       pickup_elapsed_error_s, dropout_elapsed_error_s, plausibility_json,
++                       ea_stop_confirmed, ea_final_output_state, ea_final_voltage_v,
++                       ea_final_generator_state, ea_stop_detail, resultat, timestamp
+                 FROM mesures_tension_fonctionnement
+                 WHERE lot = ?
+                 ORDER BY timestamp ASC, id ASC
+@@ -10470,7 +11865,7 @@
+             ("ramp_up_s", "Montée BE demandée s"), ("ramp_down_s", "Retour BE/BR demandé s"),
+             ("interphase_s", "Attente demandée s"),
+             ("interphase_actual_s", "Attente réelle s"),
+-            ("current_limit_a", "Limite A"), ("stable_ms", "Validation ms"),
++            ("current_limit_a", "Limite A"), ("chrono_supply_v", "Tension chronométrie EA V"), ("stable_ms", "Validation ms"),
+             ("capture_policy", "Méthode capture"), ("validation_policy", "Méthode validation"),
+             ("calibration_id", "ID étalonnage"), ("calibration_date", "Date étalonnage"),
+             ("divider_ratio", "Rapport étalonné"), ("offset_mv", "Offset mV"), ("calibration_error_v", "Erreur contrôle V"),
+@@ -10481,49 +11876,71 @@
+             ("pickup_json", "Collage par inverseur"), ("dropout_json", "Décollage par inverseur"),
+             ("pickup_time_json", "Temps collage par inverseur µs"), ("dropout_time_json", "Temps retour par inverseur µs"),
+             ("ea_readback_json", "Relecture paramètres EA"),
++            ("pickup_plausibility_status", "Plausibilité collage/BE"),
++            ("dropout_plausibility_status", "Plausibilité retour/BR"),
++            ("pickup_expected_elapsed_s", "Temps théorique collage/BE s"),
++            ("dropout_expected_elapsed_s", "Temps théorique retour/BR s"),
++            ("pickup_elapsed_error_s", "Écart temps collage/BE s"),
++            ("dropout_elapsed_error_s", "Écart temps retour/BR s"),
++            ("ea_stop_confirmed", "Arrêt EA confirmé"),
++            ("ea_final_output_state", "Sortie EA finale"),
++            ("ea_final_voltage_v", "Tension EA finale V"),
++            ("ea_final_generator_state", "Générateur EA final"),
++            ("ea_stop_detail", "Détail arrêt EA"),
+             ("resultat", "Résultat"), ("timestamp", "Horodatage"),
+         ]
+ 
+     def voltage_export_lot_xlsx(self):
+         lot = self.lineEdit_voltage_lot.text().strip()
+         if not lot:
+-            QMessageBox.warning(self.window, "Export tensions", "Renseigner le lot.")
++            QMessageBox.warning(self.window, "Export mesures", "Renseigner le lot.")
++            return
++        try:
++            chrono_records = self.chrono_records_for_lot(lot)
++            voltage_records = self.voltage_records_for_lot(lot)
++        except Exception as exc:
++            QMessageBox.warning(self.window, "Export mesures", f"Lecture base impossible : {exc}")
+             return
+-        rows = self.voltage_records_for_lot(lot)
+-        if not rows:
+-            QMessageBox.information(self.window, "Export tensions", f"Aucune mesure pour le lot {lot}.")
++        if not chrono_records and not voltage_records:
++            QMessageBox.information(self.window, "Export mesures", f"Aucune mesure pour le lot {lot}.")
+             return
+-        path = self.ask_export_path("Exporter tensions de fonctionnement", f"tensions_fonctionnement_lot_{self.filename_safe(lot)}.xlsx", "Excel (*.xlsx)", ".xlsx")
++        path = self.ask_export_path(
++            "Exporter les mesures complètes",
++            f"mesures_completes_lot_{self.filename_safe(lot)}.xlsx",
++            "Excel (*.xlsx)",
++            ".xlsx",
++        )
+         if not path:
