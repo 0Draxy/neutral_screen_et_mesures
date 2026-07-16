@@ -5,19 +5,24 @@ Tu dois auditer **Neutral Screen V2.12.3 R10** depuis la branche GitHub :
 - dépôt : `0Draxy/neutral_screen_et_mesures`
 - branche : `v2.12.3-r10-ui-reference`
 
-Commence par lire `CURRENT_V2_12_3_R10/README.md`, puis exécute :
+Commence par lire `CURRENT_V2_12_3_R10/README.md`, puis exécute depuis la racine du dépôt :
 
 ```bash
 python CURRENT_V2_12_3_R10/apply_r10.py
 ```
 
-Cette commande reconstruit les trois fichiers principaux R10 depuis les sources V2.12.2 du dépôt et les patches versionnés. N’audite pas les anciens fichiers V2.12.2 comme s’ils étaient la cible R10.
+Sous Windows, exécute cette commande dans **Git Bash**, car le script utilise l’outil standard `patch`.
+
+Cette commande reconstruit les trois fichiers principaux R10 depuis les sources V2.12.2 et les patches versionnés, contrôle leurs SHA-256, installe à la racine le BAT et les tests R10, puis crée les bases SQLite `REFERENCE_VIDE`. N’audite pas les anciens fichiers V2.12.2 comme s’ils étaient la cible R10.
 
 ## Fichiers cibles principaux
 
 - `main_ihm_relais_rp2040_v2_12_3.py`
 - `ihm_relais_rp2040_28vdc_precision_v2_12_3.ui`
 - `rp2040_relais_28vdc_precision_v2_12_3_ADS1115_GP26_RGB.ino`
+- `build_exe_onefile_ihm_relais_rp2040_v2_12_3_R10.bat`
+- `SCHEMA_SQLITE_V2_12_3.sql`
+- les tests `test_*R10.py` et les tests de non-régression installés à la racine
 
 ## Vérifications obligatoires
 
@@ -36,6 +41,8 @@ Cette commande reconstruit les trois fichiers principaux R10 depuis les sources 
 13. Vérifier la correspondance complète entre les `objectName` recherchés par le Python et ceux présents dans le `.ui`.
 14. Vérifier les séquences d’arrêt de sécurité EA : `OUTP OFF`, consigne à 0 V, lecture de confirmation et gestion des réponses SCPI vides ou tardives.
 15. Vérifier l’absence de régression sur les fonctions Neutral Screen, chronométrie, oscilloscope, base SQLite, production, PDF et Excel.
+16. Exécuter les tests logiciels disponibles. Signaler distinctement les tests impossibles faute de matériel, de PySide6, de compilateur Arduino ou de fichier privé de licence.
+17. Vérifier que les bases `REFERENCE_VIDE` ne peuvent pas écraser les bases utilisateur et que le BAT les range dans `dist\BASES_REFERENCE_VIDES`.
 
 ## Forme attendue du rapport
 
