@@ -1,0 +1,234 @@
+         if not self.voltage_test_running or not self.voltage_ramp_info:
++            self.voltage_ea_monitor_timer.stop()
+             return
+         try:
+             state = self.ea_psu.generator_state()
+-            if state and not any(token in state for token in ("RUN", "ON", "1")):
+-                self.voltage_abort_test(f"L'alimentation EA ne confirme pas la rampe RUN : {state}")
++            if not self.ea_psu.generator_state_is_running(state):
++                self.voltage_abort_test(f"L'alimentation EA ne confirme pas la rampe RUN : {state or 'réponse vide'}")
+         except Exception as exc:
+             self.voltage_abort_test(f"Contrôle état générateur EA impossible : {exc}")
+ 
+@@ -10010,7 +11212,7 @@
+                 self.voltage_abort_test(
+                     "Firmware RP2040 incompatible : la mesure tension doit utiliser "
+                     "CAPTURE=FIRST_PASSAGE et VALIDATION=STABLE_AFTER_CAPTURE. "
+-                    "Téléverser le firmware V2.12.2."
++                    "Téléverser le firmware V2.12.3 R8."
+                 )
+                 return
+             self.voltage_capture_policy = capture_policy
+@@ -10067,6 +11269,7 @@
+         if kind == "RESULT":
+             self.voltage_timeout_timer.stop()
+             self.voltage_progress_timer.stop()
++            self.voltage_ea_monitor_timer.stop()
+             mode = data.get("MODE", self.voltage_active_scan).upper()
+             if data.get("CAPTURE", "").upper() != "FIRST_PASSAGE":
+                 self.voltage_abort_test(
+@@ -10133,6 +11336,7 @@
+             return
+         mode = str(mode).upper()
+         self.voltage_progress_timer.stop()
++        self.voltage_ea_monitor_timer.stop()
+         requested_s = None
+         if self.voltage_ramp_info and self.voltage_ramp_info.get("mode") == mode:
+             requested_s = float(self.voltage_ramp_info.get("duration_s", 0.0))
+@@ -10140,6 +11344,7 @@
+         global_v = self.voltage_results.get(mode, {}).get("GLOBAL")
+         elapsed_us = self.voltage_time_results.get(mode, {}).get("GLOBAL")
+         elapsed_s = None if elapsed_us is None else elapsed_us / 1_000_000.0
++        plausibility = self.voltage_evaluate_plausibility(mode)
+         timing_text = ""
+         if requested_s is not None:
+             timing_text = f" Rampe demandée {requested_s:.3f} s"
+@@ -10149,57 +11354,145 @@
+                 timing_text += f", seuil {global_v:.3f} V à t={elapsed_s:.3f} s."
+             else:
+                 timing_text += "."
++        plausibility_text = " " + str(plausibility.get("detail", ""))
++
++        if plausibility.get("status") != "OK":
++            self.voltage_result_override = str(plausibility.get("status") or "NON_VERIFIE")
++            self.voltage_finish_test(
++                False,
++                f"Mesure {mode} enregistrée mais classée {self.voltage_result_override}.{timing_text}{plausibility_text}",
++            )
++            return
++
+         try:
+             if mode == "PICKUP" and self.voltage_requested_mode == "CYCLE":
+-                interphase_s = float(self.doubleSpinBox_voltage_interphase_s.value())
++                interphase_s = self.voltage_run_setting("interphase_s", self.doubleSpinBox_voltage_interphase_s)
+                 self.voltage_interphase_origin_monotonic = time.monotonic()
+                 target = self.voltage_interphase_origin_monotonic + interphase_s
+                 self.voltage_interphase_target_monotonic = target
+                 if self.voltage_relay_type() == "BISTABLE":
+                     self.voltage_set_coil_hold("OFF")
+-                    self.ea_psu.stop_generator(leave_mode=True)
+-                    self.ea_psu.output(False)
+-                    self.ea_psu.send("VOLT 0")
++                    if not self.voltage_stop_ea_and_confirm("transition BE vers BR", show_alert=False):
++                        self.voltage_abort_test("Transition BE vers BR : arrêt EA non confirmé.")
++                        return
+                     self.label_voltage_status.setText(
+-                        f"Basculement BE mesuré au premier passage, puis validé stable.{timing_text} "
++                        f"Basculement BE mesuré au premier passage, puis validé stable.{timing_text}{plausibility_text} "
+                         f"Préparation BR ; démarrage dans {interphase_s:.2f} s."
+                     )
+                     self.voltage_begin_dropout(not_before=target)
+                 else:
+-                    vmax = float(self.doubleSpinBox_voltage_vmax.value())
++                    vmax = self.voltage_run_setting("vmax_v", self.doubleSpinBox_voltage_vmax)
+                     self.ea_psu.stop_generator(leave_mode=True)
+                     self.ea_psu.send(f"VOLT {vmax:.6f}")
+                     self.ea_psu.output(True)
+                     self.label_voltage_status.setText(
+-                        f"Collage mesuré au premier passage, puis validé stable.{timing_text} "
++                        f"Collage mesuré au premier passage, puis validé stable.{timing_text}{plausibility_text} "
+                         f"Maintien à Vmax ; descente dans {interphase_s:.2f} s."
+                     )
+                     self.voltage_begin_dropout(not_before=target)
+                 return
+             label = "BE" if mode == "PICKUP" and self.voltage_relay_type() == "BISTABLE" else "BR" if mode == "DROPOUT" and self.voltage_relay_type() == "BISTABLE" else mode.lower()
+-            warning = ""
+-            if requested_s and effective_s is not None:
+-                delta = abs(effective_s - requested_s)
+-                if delta > max(0.5, requested_s * 0.10):
+-                    warning = f" ATTENTION : durée EA incohérente de {delta:.3f} s."
+             self.voltage_finish_test(
+                 True,
+                 f"Mesure {label} terminée : tension capturée au premier passage, "
+-                f"puis position validée stable.{timing_text}{warning}"
++                f"puis position validée stable.{timing_text}{plausibility_text}"
+             )
+         except Exception as exc:
+             self.voltage_abort_test(f"Transition de phase impossible : {exc}")
+ 
++    def voltage_timeout_global_fallback(self, mode):
++        """Valeur limite à enregistrer lorsque le global n'a jamais été validé."""
++        mode = str(mode or "").upper()
++        vmax = self.voltage_run_setting("vmax_v", self.doubleSpinBox_voltage_vmax)
++        if mode == "DROPOUT" and self.voltage_relay_type() == "MONOSTABLE":
++            return 0.0, "0 V atteint sans rappel global complet"
++        return float(vmax), "Vmax atteint sans basculement global complet"
++
++    def voltage_apply_timeout_global_fallback(self):
++        mode = str(self.voltage_active_scan or "").upper()
++        if mode not in ("PICKUP", "DROPOUT") and self.voltage_ramp_info:
++            mode = str(self.voltage_ramp_info.get("mode", "")).upper()
++        if mode not in ("PICKUP", "DROPOUT"):
++            mode = "PICKUP" if self.voltage_requested_mode in ("PICKUP", "CYCLE") else "DROPOUT"
++
++        first_global = self.voltage_first_passage.get(mode, {}).get("GLOBAL", {})
++        try:
++            first_mv = int(first_global.get("mv", -1))
++        except Exception:
++            first_mv = -1
++        if first_mv >= 0:
++            value = first_mv / 1000.0
++            reason = "premier passage global capturé mais stabilité non confirmée"
++            status = "DEFAUT_STABILITE"
++            try:
++                first_raw = int(first_global.get("raw", -1))
++                if first_raw >= 0:
++                    self.voltage_raw_results.setdefault(mode, {})["GLOBAL"] = first_raw
++            except Exception:
++                pass
++            try:
++                first_t_us = int(first_global.get("t_us", -1))
++                if first_t_us >= 0:
++                    self.voltage_time_results.setdefault(mode, {})["GLOBAL"] = first_t_us
++            except Exception:
++                pass
++            detail = (
++                f"Premier passage global conservé à {value:.3f} V, mais la stabilité finale "
++                "n'a pas été confirmée avant la fin de la rampe."
++            )
++        else:
++            value, reason = self.voltage_timeout_global_fallback(mode)
++            status = "DEFAUT_CONTACTS"
++            detail = (
++                f"Contacts incomplets en fin de rampe : valeur globale limite enregistrée "
++                f"à {value:.3f} V ({reason})."
++            )
++
++        self.voltage_results.setdefault(mode, {})["GLOBAL"] = value
++        self.voltage_plausibility[mode] = {
++            "status": status,
++            "mode": mode,
++            "measured_v": value,
++            "elapsed_s": None,
++            "expected_elapsed_s": None,
++            "elapsed_error_s": None,
++            "tolerance_s": None,
++            "fallback_global_v": value,
++            "fallback_reason": reason,
++            "detail": detail,
++        }
++        self.voltage_result_override = status
++        self.voltage_refresh_results_table()
++        return mode, value, reason, status
++
+     def voltage_test_timeout(self):
+-        self.voltage_abort_test(
+-            "Aucun premier passage complet confirmé par une position stable avant la fin de la rampe."
++        mode, fallback_v, fallback_reason, fallback_status = self.voltage_apply_timeout_global_fallback()
++        title, detail = self.voltage_timeout_contact_diagnostic()
++        detail = (
++            f"{detail}\n\nValeur globale enregistrée : {fallback_v:.3f} V "
++            f"({fallback_reason}). Résultat classé {fallback_status}."
++        )
++        message = f"{title}\n\n{detail}"
++        self.voltage_finish_test(
++            False,
++            message,
++            allow_measure_all_continue=True,
+         )
++        if bool(getattr(self, "voltage_ea_stop_confirmation", {}).get("confirmed", False)):
++            self.big_message_box(
++                "Échec mesure tension",
++                title,
++                detail,
++                ok_text="COMPRIS",
++                icon=QMessageBox.Warning,
++            )
+ 
+     def voltage_abort_test(self, reason="Arrêt sécurité demandé"):
+         self.voltage_timeout_timer.stop()
+         self.voltage_phase_timer.stop()
+         self.voltage_arm_timeout_timer.stop()
+         self.voltage_progress_timer.stop()
++        self.voltage_ea_monitor_timer.stop()
+         self.voltage_pending_ramp = None
+         self.voltage_ramp_info = None
+         self.voltage_ramp_started_monotonic = None
+@@ -10210,24 +11503,36 @@
+                 self.voltage_set_coil_hold("OFF")
+         except Exception:
+             pass
+-        try:
+-            if self.ea_psu.connected:
+-                self.ea_psu.stop_generator(leave_mode=True)
+-                self.ea_psu.output(False)
+-                self.ea_psu.send("VOLT 0")
+-        except Exception:
+-            pass
++        stop_confirmed = self.voltage_stop_ea_and_confirm("arrêt de sécurité", show_alert=False)
+         self.voltage_test_running = False
+         self.voltage_active_scan = ""
+-        self.label_voltage_status.setText(str(reason))
++        message = str(reason)
++        if not stop_confirmed:
++            detail = str(getattr(self, "voltage_last_stop_diagnostic", "") or "").strip()
++            message += " ARRÊT EA NON CONFIRMÉ — COUPER MANUELLEMENT L'ALIMENTATION."
++            if detail:
++                message += "\n\n" + detail
++        self.label_voltage_status.setText(message)
+         self.label_voltage_status.setStyleSheet("background-color: rgb(190,0,0); color: white; font-weight: bold; border: 2px solid black;")
+         self.voltage_update_button_states()
++        combined_aborted = getattr(self, "measure_all_active", False) and self.measure_all_phase == "VOLTAGE"
++        if combined_aborted:
++            self.voltage_measure_all_fail(str(reason), preserve_status=True)
++        if not stop_confirmed:
