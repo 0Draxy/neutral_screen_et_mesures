@@ -1,0 +1,239 @@
+         recus = [reset1, reset2, reset3, reset4, latch1, latch2, latch3, latch4]
+         fusion = []
+@@ -7694,6 +8258,9 @@
+             self.set_contact_led(self.label_chrono_led_t3, "T3", t3, "red")
+             self.set_contact_led(self.label_chrono_led_t4, "T4", t4, "red")
+ 
++        if hasattr(self, "label_voltage_led_r1"):
++            self.voltage_refresh_contact_leds()
++
+         def txt(v):
+             if v is None:
+                 return "--"
+@@ -7727,7 +8294,7 @@
+     def refresh_auto_leds_from_known_values(self):
+         """Rafraîchit immédiatement les LED de l'onglet auto depuis le dernier état connu.
+ 
+-        Objectif V2.12.2 :
++        Objectif V2.12.3 :
+         - si N passe de 2 à 4, R3/R4/T3/T4 ne doivent pas rester grisées ;
+         - si N passe de 4 à 2, R3/R4/T3/T4 doivent être grisées immédiatement ;
+         - ne pas attendre une nouvelle trame STATUS ou CONTACT.
+@@ -7935,7 +8502,7 @@
+ 
+ 
+     # ------------------------------------------------------------------
+-    # Neutral Screen Automatique V2.12.2
++    # Neutral Screen Automatique V2.12.3
+     # ------------------------------------------------------------------
+     def auto_update_tension_labels(self):
+         tension_basse = self.texte_tension_basse_info()
+@@ -8127,7 +8694,7 @@
+ 
+     def default_scenarios_data(self):
+         return {
+-            "version": "2.12.2",
++            "version": "2.12.3",
+             "scenarios": [
+                 {"name":"Neutral screen norme","description":"Scénario strict MIL-PRF-39016H 4.8.7.7 : BE/BR max 3 avec vérification neutre, si pas neutre après 3 essais accepté, sinon BE puis vérification latch, répéter BE/BR avec vérification neutre, puis BR avec vérification reset.","steps":[
+                     {"action":"BEBR","pulse_ms":10,"check":"NEUTRAL","max_attempts":3,"on_fail":"ACCEPT","description":"Recherche position neutre"},
+@@ -8926,21 +9493,6 @@
+ 
+     def set_auto_finish_validation_state(self, pending):
+         self.auto_end_validation_pending = bool(pending)
+-        self.pushButton_auto_fin_essai.setVisible(False)
+-        if pending:
+-            self.pushButton_auto_fin_essai.setEnabled(True)
+-            self.pushButton_auto_fin_essai.setText("TEST FINI")
+-            self.pushButton_auto_fin_essai.setStyleSheet(
+-                "background-color: rgb(255,235,80); color: black; "
+-                "font-size: 13pt; font-weight: bold; border: 4px solid rgb(180,80,0);"
+-            )
+-        else:
+-            self.pushButton_auto_fin_essai.setEnabled(False)
+-            self.pushButton_auto_fin_essai.setText("TEST FINI")
+-            self.pushButton_auto_fin_essai.setStyleSheet(
+-                "background-color: rgb(200,200,200); color: rgb(80,80,80); "
+-                "font-size: 13pt; font-weight: bold; border: 3px solid rgb(120,120,120);"
+-            )
+ 
+     def show_auto_finish_validation_dialog(self, accepted):
+         if not getattr(self, "auto_end_validation_pending", False):
+@@ -9144,7 +9696,7 @@
+         if self.runtime_step_index >= len(self.current_runtime_steps): self.auto_finish_accept_ok(); return
+         step=self.current_runtime_steps[self.runtime_step_index]; check=self.normalize_check(step.get("check","NONE")); max_attempts=int(step.get("max_attempts",1)); on_fail=self.normalize_on_fail(step.get("on_fail","REJECT"))
+         ok=True; detail="Aucune vérification"
+-        # V2.12.2 : garde anti faux-ACCEPT. Si la vérif dépend des contacts
++        # V2.12.3 : garde anti faux-ACCEPT. Si la vérif dépend des contacts
+         # mais que le retour RP2040 n'est pas encore connu, on rejette
+         # explicitement au lieu de consommer un essai vers ACCEPT.
+         if check in ("NEUTRAL","LATCH_RED","RESET_GREEN") and not self.auto_contacts_known():
+@@ -9212,7 +9764,7 @@
+ 
+ 
+     # ------------------------------------------------------------------
+-    # Étalonnage ADS1115 + pont diviseur V2.12.2
++    # Étalonnage ADS1115 + pont diviseur V2.12.3
+     # ------------------------------------------------------------------
+     def voltage_calibration_init_db(self):
+         self.chrono_init_db()
+@@ -9485,6 +10037,106 @@
+     def voltage_relay_type(self):
+         return "BISTABLE" if "bistable" in self.comboBox_voltage_relay_type.currentText().strip().lower() else "MONOSTABLE"
+ 
++    def voltage_measure_settings_snapshot(self):
++        """Retourne les réglages opérateur réellement validés dans les spinbox."""
++        for spin in (
++            self.doubleSpinBox_voltage_vmax,
++            self.doubleSpinBox_voltage_ramp_up_s,
++            self.doubleSpinBox_voltage_ramp_down_s,
++            self.doubleSpinBox_voltage_current_limit,
++            self.doubleSpinBox_voltage_chrono_v,
++            self.doubleSpinBox_voltage_interphase_s,
++        ):
++            spin.interpretText()
++        return {
++            "vmax_v": float(self.doubleSpinBox_voltage_vmax.value()),
++            "ramp_up_s": float(self.doubleSpinBox_voltage_ramp_up_s.value()),
++            "ramp_down_s": float(self.doubleSpinBox_voltage_ramp_down_s.value()),
++            "current_limit_a": float(self.doubleSpinBox_voltage_current_limit.value()),
++            "chrono_supply_v": float(self.doubleSpinBox_voltage_chrono_v.value()),
++            "interphase_s": float(self.doubleSpinBox_voltage_interphase_s.value()),
++        }
++
++    def voltage_load_measure_settings(self):
++        """Recharge les derniers réglages de mesure depuis le dossier de l'EXE."""
++        path = Path(self.voltage_measure_settings_file)
++        if not path.exists():
++            return
++        try:
++            data = json.loads(path.read_text(encoding="utf-8"))
++            if not isinstance(data, dict):
++                return
++            spins = (
++                self.doubleSpinBox_voltage_vmax,
++                self.doubleSpinBox_voltage_ramp_up_s,
++                self.doubleSpinBox_voltage_ramp_down_s,
++                self.doubleSpinBox_voltage_current_limit,
++                self.doubleSpinBox_voltage_chrono_v,
++                self.doubleSpinBox_voltage_interphase_s,
++            )
++            self._voltage_loading_measure_settings = True
++            for spin in spins:
++                spin.blockSignals(True)
++            try:
++                if "vmax_v" in data:
++                    self.doubleSpinBox_voltage_vmax.setValue(float(data["vmax_v"]))
++                self.voltage_update_ramp_limits()
++                mapping = (
++                    ("ramp_up_s", self.doubleSpinBox_voltage_ramp_up_s),
++                    ("ramp_down_s", self.doubleSpinBox_voltage_ramp_down_s),
++                    ("current_limit_a", self.doubleSpinBox_voltage_current_limit),
++                    ("chrono_supply_v", self.doubleSpinBox_voltage_chrono_v),
++                    ("interphase_s", self.doubleSpinBox_voltage_interphase_s),
++                )
++                for key, spin in mapping:
++                    if key in data:
++                        spin.setValue(float(data[key]))
++            finally:
++                for spin in spins:
++                    spin.blockSignals(False)
++                self._voltage_loading_measure_settings = False
++        except Exception:
++            self._voltage_loading_measure_settings = False
++
++    def voltage_save_measure_settings(self, *_args):
++        """Sauvegarde les réglages opérateur sans interrompre l'essai en cas d'erreur disque."""
++        if getattr(self, "_voltage_loading_measure_settings", False):
++            return
++        try:
++            data = self.voltage_measure_settings_snapshot()
++            path = Path(self.voltage_measure_settings_file)
++            path.parent.mkdir(parents=True, exist_ok=True)
++            temporary = path.with_name(path.name + ".tmp")
++            temporary.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
++            os.replace(temporary, path)
++        except Exception:
++            pass
++
++    def voltage_commit_measure_settings(self):
++        """Valide explicitement une saisie clavier et la rend persistante."""
++        for spin in (
++            self.doubleSpinBox_voltage_vmax,
++            self.doubleSpinBox_voltage_ramp_up_s,
++            self.doubleSpinBox_voltage_ramp_down_s,
++            self.doubleSpinBox_voltage_current_limit,
++            self.doubleSpinBox_voltage_chrono_v,
++            self.doubleSpinBox_voltage_interphase_s,
++        ):
++            spin.interpretText()
++        self.voltage_save_measure_settings()
++
++    def voltage_capture_run_settings(self):
++        """Fige les réglages au démarrage afin qu'ils restent identiques durant tout le cycle."""
++        self.voltage_run_settings = self.voltage_measure_settings_snapshot()
++        self.voltage_save_measure_settings()
++        return dict(self.voltage_run_settings)
++
++    def voltage_run_setting(self, key, fallback_widget):
++        try:
++            return float(self.voltage_run_settings.get(key, fallback_widget.value()))
++        except Exception:
++            return float(fallback_widget.value())
++
+     def voltage_update_relay_type_ui(self, *_args):
+         bistable = self.voltage_relay_type() == "BISTABLE"
+         if bistable:
+@@ -9505,8 +10157,32 @@
+             headers = ["Inverseur", "Tension collage (V)", "Tension décollage (V)", "État"]
+         self.label_voltage_interphase_note.setText("Délai réel contrôlé")
+         self.tableWidget_voltage_results.setHorizontalHeaderLabels(headers)
++        self.voltage_update_ramp_limits()
+         self.voltage_refresh_results_table()
+ 
++    def voltage_update_ramp_limits(self, *_args):
++        vmax = max(0.0, float(self.doubleSpinBox_voltage_vmax.value()))
++        raw_max_duration_s = vmax / EAPSU.MIN_VOLTAGE_SLOPE_V_PER_S
++        decimals = int(self.doubleSpinBox_voltage_ramp_up_s.decimals())
++        scale = 10 ** max(0, decimals)
++        rounded_down_s = math.floor(raw_max_duration_s * scale + 1e-12) / scale
++        max_duration_s = max(float(self.doubleSpinBox_voltage_ramp_up_s.minimum()), rounded_down_s)
++        for spin in (self.doubleSpinBox_voltage_ramp_up_s, self.doubleSpinBox_voltage_ramp_down_s):
++            spin.setMaximum(max_duration_s)
++            spin.setToolTip(
++                f"Pente minimale EA : {EAPSU.MIN_VOLTAGE_SLOPE_V_PER_S:.3f} V/s. "
++                f"Pour une rampe de {vmax:.3f} V, durée maximale autorisée : {max_duration_s:.3f} s."
++            )
++        self.label_voltage_accuracy.setText(
++            f"Premier passage avant rebonds | pente EA mini {EAPSU.MIN_VOLTAGE_SLOPE_V_PER_S:.3f} V/s "
++            f"| durée maxi actuelle {max_duration_s:.3f} s"
++        )
++        self.label_voltage_accuracy.setToolTip(
++            "La durée maximale est recalculée automatiquement à partir de Vmax. "
++            "Le contrôle de plausibilité ne remplace jamais la tension ADS1115 capturée."
++        )
++        return max_duration_s
++
+     def voltage_refresh_ea_ports(self):
+         current = self.comboBox_voltage_ea_port.currentText().strip() if hasattr(self, "comboBox_voltage_ea_port") else ""
+         ports = [p.device for p in serial.tools.list_ports.comports()]
+@@ -9569,16 +10245,25 @@
+     def voltage_disconnect_ea(self):
+         if self.voltage_test_running:
+             self.voltage_abort_test("Déconnexion EA demandée")
+-        try:
+-            if self.ea_psu.connected:
+-                self.ea_psu.stop_generator(leave_mode=True)
+-                self.ea_psu.output(False)
+-                self.ea_psu.set_local()
+-        except Exception:
+-            pass
++        stop_confirmed = True
++        local_confirmed = True
++        if self.ea_psu.connected:
++            stop_confirmed = self.voltage_stop_ea_and_confirm("déconnexion EA", show_alert=True)
++            if stop_confirmed:
++                try:
++                    self.ea_psu.set_local()
++                except Exception:
++                    local_confirmed = False
