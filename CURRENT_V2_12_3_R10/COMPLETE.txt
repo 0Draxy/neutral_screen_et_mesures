@@ -1,0 +1,22 @@
+R10_GITHUB_BUNDLE_COMPLETE
+
+Branch: v2.12.3-r10-ui-reference
+
+Reconstruction verified locally on 2026-07-16.
+
+Expected SHA-256 after running CURRENT_V2_12_3_R10/apply_r10.py:
+- main_ihm_relais_rp2040_v2_12_3.py
+  268492cde1ec7def1f5cc52fe136b1f0e26c2be27f561ddafecd7cd2c0221c98
+- ihm_relais_rp2040_28vdc_precision_v2_12_3.ui
+  188a0c725a3bbd1632d863d60d907d032e1ff62d146cb510d9c6a2b7ebf6d3e7
+- rp2040_relais_28vdc_precision_v2_12_3_ADS1115_GP26_RGB.ino
+  4dc604fcffbc257b0c5c4065bfff7c928809784e0efdad42b25d104c007e3a6a
+
+Patch parts:
+- main: 19 parts, part000 to part018
+- UI: 5 parts, part000 to part004
+- firmware: 1 part, part000
+
+The latest user-provided UI is the mandatory reference.
+licence_manager.py is intentionally excluded from this public repository.
+Hardware and metrology validation are not claimed by this marker.
