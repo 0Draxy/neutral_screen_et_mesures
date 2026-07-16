@@ -1,0 +1,184 @@
+         self.label_neutral_contact_summary = self.get_widget(QLabel, "label_neutral_contact_summary")
+ 
+-        # Onglet Neutral Screen Automatique V2.12.2
++        # Onglet Neutral Screen Automatique V2.12.3
+         self.pushButton_auto_neutral_marche = self.get_widget(QPushButton, "pushButton_auto_neutral_marche")
+         self.pushButton_auto_neutral_arret = self.get_widget(QPushButton, "pushButton_auto_neutral_arret")
+         self.lineEdit_auto_delai_ms = self.get_widget(QLineEdit, "lineEdit_auto_delai_ms")
+@@ -1302,11 +1731,6 @@
+         self.lineEdit_SN = self.get_widget(QLineEdit, "lineEdit_SN")
+         self.label_auto_lot = self.window.findChild(QLabel, "label_LOT")
+         self.label_auto_design_relais = self.window.findChild(QLabel, "label_design_relais")
+-        self.pushButton_auto_fin_essai = self.window.findChild(QPushButton, "pushButton_auto_fin_essai")
+-        if self.pushButton_auto_fin_essai is None:
+-            self.pushButton_auto_fin_essai = QPushButton("TEST FINI", self.window)
+-            self.pushButton_auto_fin_essai.setObjectName("pushButton_auto_fin_essai")
+-            self.pushButton_auto_fin_essai.setVisible(False)
+         self.pushButton_auto_lot_fini = self.get_widget(QPushButton, "pushButton_auto_lot_fini")
+         self.tableWidget_auto_logigramme = self.get_widget(QTableWidget, "tableWidget_auto_logigramme")
+         self.label_auto_tension_basse = self.get_widget(QLabel, "label_auto_tension_basse")
+@@ -1323,7 +1747,7 @@
+         self.label_auto_led_t3 = self.get_widget(QLabel, "label_auto_led_t3")
+         self.label_auto_led_t4 = self.get_widget(QLabel, "label_auto_led_t4")
+ 
+-        # Onglet Éditeur Scénarios Neutral Screen V2.12.2
++        # Onglet Éditeur Scénarios Neutral Screen V2.12.3
+         self.comboBox_editor_scenarios = self.get_widget(QComboBox, "comboBox_editor_scenarios")
+         self.lineEdit_editor_nom = self.get_widget(QLineEdit, "lineEdit_editor_nom")
+         self.textEdit_editor_description = self.get_widget(QTextEdit, "textEdit_editor_description")
+@@ -1364,7 +1788,7 @@
+             "label_auto_step_reject",
+         ]
+         # Ancien logigramme fixe conservé uniquement pour compatibilité historique.
+-        # En V2.12.2 le vrai affichage est tableWidget_auto_logigramme.
++        # En V2.12.3 le vrai affichage est tableWidget_auto_logigramme.
+         self.auto_steps = {}
+         for name in self.auto_step_names:
+             w = self.window.findChild(QLabel, name)
+@@ -1378,7 +1802,7 @@
+         self.contacts_known_values = [None, None, None, None, None, None, None, None]
+         self.contacts_force_refresh = False
+ 
+-        # Automate Neutral Screen Automatique V2.12.2
++        # Automate Neutral Screen Automatique V2.12.3
+         self.auto_neutral_running = False
+         self.auto_neutral_attempt = 0
+         self.auto_next_action = None
+@@ -1394,14 +1818,14 @@
+         self.flash_timer.timeout.connect(self.end_flash)
+         self.flash_active = False
+ 
+-        # Scénarios Neutral Screen V2.12.2
+-        self.scenarios_data = {"version": "2.12.2", "scenarios": []}
++        # Scénarios Neutral Screen V2.12.3
++        self.scenarios_data = {"version": "2.12.3", "scenarios": []}
+         self.current_runtime_steps = []
+         self.current_runtime_scenario_name = ""
+         self.runtime_step_index = 0
+         self.runtime_attempt = 0
+         self._refreshing_scenario_combos = False
+-        self.production_data = {"version": "2.12.2", "last_context": {}, "records": [], "access_code": LOCK_ACCESS_CODE}
++        self.production_data = {"version": "2.12.3", "last_context": {}, "records": [], "access_code": LOCK_ACCESS_CODE}
+         self.current_access_code = LOCK_ACCESS_CODE
+         self._production_autofill_running = False
+         self._auto_start_prompts_done = False
+@@ -1611,7 +2035,19 @@
+         self.doubleSpinBox_voltage_ramp_up_s = self.get_widget(QDoubleSpinBox, "doubleSpinBox_voltage_ramp_up_s")
+         self.doubleSpinBox_voltage_ramp_down_s = self.get_widget(QDoubleSpinBox, "doubleSpinBox_voltage_ramp_down_s")
+         self.doubleSpinBox_voltage_current_limit = self.get_widget(QDoubleSpinBox, "doubleSpinBox_voltage_current_limit")
++        self.doubleSpinBox_voltage_chrono_v = self.get_widget(QDoubleSpinBox, "doubleSpinBox_voltage_chrono_v")
+         self.doubleSpinBox_voltage_interphase_s = self.get_widget(QDoubleSpinBox, "doubleSpinBox_voltage_interphase_s")
++        for spin in (
++            self.doubleSpinBox_voltage_vmax,
++            self.doubleSpinBox_voltage_ramp_up_s,
++            self.doubleSpinBox_voltage_ramp_down_s,
++            self.doubleSpinBox_voltage_current_limit,
++            self.doubleSpinBox_voltage_chrono_v,
++            self.doubleSpinBox_voltage_interphase_s,
++        ):
++            # La saisie clavier n'est validée qu'à la fin de l'édition. Cela évite
++            # qu'une valeur partiellement saisie soit corrigée vers l'ancienne valeur.
++            spin.setKeyboardTracking(False)
+         self.label_voltage_interphase = self.get_widget(QLabel, "label_voltage_interphase")
+         self.label_voltage_interphase_note = self.get_widget(QLabel, "label_voltage_interphase_note")
+         self.label_voltage_ramp_up = self.get_widget(QLabel, "label_voltage_ramp_up")
+@@ -1626,11 +2062,21 @@
+         self.pushButton_voltage_pickup = self.get_widget(QPushButton, "pushButton_voltage_pickup")
+         self.pushButton_voltage_dropout = self.get_widget(QPushButton, "pushButton_voltage_dropout")
+         self.pushButton_voltage_cycle = self.get_widget(QPushButton, "pushButton_voltage_cycle")
++        self.pushButton_voltage_measure_all = self.get_widget(QPushButton, "pushButton_voltage_measure_all")
+         self.pushButton_voltage_stop = self.get_widget(QPushButton, "pushButton_voltage_stop")
+         self.pushButton_voltage_export_xlsx = self.get_widget(QPushButton, "pushButton_voltage_export_xlsx")
+         self.pushButton_voltage_export_pdf = self.get_widget(QPushButton, "pushButton_voltage_export_pdf")
+         self.label_voltage_live = self.get_widget(QLabel, "label_voltage_live")
+         self.label_voltage_status = self.get_widget(QLabel, "label_voltage_status")
++        self.label_voltage_accuracy = self.get_widget(QLabel, "label_voltage_accuracy")
++        self.label_voltage_led_r1 = self.get_widget(QLabel, "label_voltage_led_r1")
++        self.label_voltage_led_r2 = self.get_widget(QLabel, "label_voltage_led_r2")
++        self.label_voltage_led_r3 = self.get_widget(QLabel, "label_voltage_led_r3")
++        self.label_voltage_led_r4 = self.get_widget(QLabel, "label_voltage_led_r4")
++        self.label_voltage_led_t1 = self.get_widget(QLabel, "label_voltage_led_t1")
++        self.label_voltage_led_t2 = self.get_widget(QLabel, "label_voltage_led_t2")
++        self.label_voltage_led_t3 = self.get_widget(QLabel, "label_voltage_led_t3")
++        self.label_voltage_led_t4 = self.get_widget(QLabel, "label_voltage_led_t4")
+         self.tableWidget_voltage_results = self.get_widget(QTableWidget, "tableWidget_voltage_results")
+ 
+         if not self.lineEdit_voltage_date.text().strip():
+@@ -1654,6 +2100,10 @@
+         self.voltage_capture_policy = ""
+         self.voltage_effective_ramp_s = {"PICKUP": None, "DROPOUT": None}
+         self.voltage_ramp_readbacks = {"PICKUP": {}, "DROPOUT": {}}
++        self.voltage_plausibility = {"PICKUP": {}, "DROPOUT": {}}
++        self.voltage_result_override = ""
++        self.voltage_ea_stop_confirmation = self.voltage_empty_stop_confirmation()
++        self.voltage_last_stop_diagnostic = ""
+         self.voltage_last_adc_mv = None
+         self.voltage_last_adc_raw = None
+         self.voltage_ads_ok = False
+@@ -1663,6 +2113,19 @@
+         self.voltage_interphase_target_monotonic = None
+         self.voltage_interphase_origin_monotonic = None
+         self.voltage_interphase_actual_s = None
++        self.voltage_run_settings = {}
++        # Séquence R8 : l'EA réalise les rampes puis fournit automatiquement
++        # la tension continue de chronométrie. Aucun passage manuel EA/FIXE.
++        self.measure_all_active = False
++        self.measure_all_phase = ""
++        self.measure_all_context = {}
++        self.measure_all_chrono_results = {}
++        self.measure_all_static_confirmation = {}
++        self.chrono_external_supply_mode = False
++        self.rp2040_ea_chrono_capable = False
++        self.voltage_last_saved_result = ""
++        self._voltage_loading_measure_settings = False
++        self.voltage_measure_settings_file = runtime_output_dir() / "voltage_measure_settings.json"
+         self.voltage_waiting_for_rp_arm = False
+         self.voltage_timeout_timer = QTimer(self.window)
+         self.voltage_timeout_timer.setSingleShot(True)
+@@ -1676,11 +2139,17 @@
+         self.voltage_progress_timer = QTimer(self.window)
+         self.voltage_progress_timer.setInterval(100)
+         self.voltage_progress_timer.timeout.connect(self.voltage_update_ramp_progress)
++        self.voltage_ea_monitor_timer = QTimer(self.window)
++        self.voltage_ea_monitor_timer.setInterval(750)
++        self.voltage_ea_monitor_timer.timeout.connect(self.voltage_check_generator_running)
+         self.voltage_pending_ramp = None
+         self.voltage_refresh_ea_ports()
+         self.voltage_refresh_results_table()
++        self.voltage_refresh_contact_leds()
+         self.voltage_init_db()
++        self.voltage_load_measure_settings()
+         self.voltage_update_relay_type_ui()
++        self.voltage_update_ramp_limits()
+ 
+     def create_voltage_calibration_tab(self):
+         self.tab_voltage_calibration = self.get_widget(QWidget, "tab_voltage_calibration")
+@@ -1774,7 +2243,7 @@
+         self.label_db_admin_status.setAlignment(Qt.AlignCenter)
+         self.label_db_admin_file.setText(str(self.production_db_file))
+         if self.comboBox_db_target.count() == 0:
+-            self.comboBox_db_target.addItems(["Neutral Screen automatique", "Chronométrie contacts"])
++            self.comboBox_db_target.addItems(["Neutral Screen automatique", "Chronométrie contacts + tensions"])
+         self.tableWidget_db_operators.setColumnCount(2)
+         self.tableWidget_db_operators.setHorizontalHeaderLabels(["Opérateur", "Créé le"])
+         self.tableWidget_db_operators.setEditTriggers(QTableWidget.NoEditTriggers)
+@@ -1793,19 +2262,14 @@
+         self.tableWidget_db_lots.horizontalHeader().setStretchLastSection(True)
+ 
+     def initialiser_validation_fin_essai(self):
+-        self.pushButton_auto_fin_essai.setVisible(False)
++        # La validation opérateur est assurée exclusivement par la fenêtre modale TEST FINI.
+         self.set_auto_finish_validation_state(False)
+-        self.shortcut_auto_fin_essai_return = QShortcut(QKeySequence("Return"), self.window)
+-        self.shortcut_auto_fin_essai_return.setContext(Qt.ApplicationShortcut)
+-        self.shortcut_auto_fin_essai_return.activated.connect(self.auto_validate_end_of_test)
+-        self.shortcut_auto_fin_essai_enter = QShortcut(QKeySequence("Enter"), self.window)
+-        self.shortcut_auto_fin_essai_enter.setContext(Qt.ApplicationShortcut)
+-        self.shortcut_auto_fin_essai_enter.activated.connect(self.auto_validate_end_of_test)
+ 
+     def initialiser_aide_boutons_operateur(self):
+         """Installe une aide explicite après 3 secondes d'immobilité sur chaque bouton."""
+         aides = {
+             "pushButton_prod_save_context": "Vérifie les informations de production, charge le prochain SN si le lot existe, enregistre le contexte puis ouvre Neutral Screen Automatique.",
++            "pushButton_prod_reload_base": "Relit la base Production depuis le disque puis actualise les tableaux Production et Gestion Base.",
+             "pushButton_prod_export_pdf_lot": "Crée le rapport PDF du lot sélectionné dans l'historique Production. Le PDF contient le détail des relais testés et le résumé accepté/refusé.",
