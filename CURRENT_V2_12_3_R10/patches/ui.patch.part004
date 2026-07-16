@@ -1,0 +1,365 @@
++         <x>182</x>
++         <y>60</y>
++         <width>22</width>
++         <height>20</height>
++        </rect>
++       </property>
++       <property name="styleSheet">
++        <string>color: rgb(180,0,0); font-weight: bold;</string>
++       </property>
++       <property name="text">
++        <string>T4</string>
++       </property>
++       <property name="alignment">
++        <set>Qt::AlignmentFlag::AlignCenter</set>
++       </property>
++      </widget>
++      <widget class="QLabel" name="label_voltage_led_t4">
++       <property name="geometry">
++        <rect>
++         <x>209</x>
++         <y>60</y>
++         <width>18</width>
++         <height>18</height>
++        </rect>
++       </property>
++       <property name="toolTip">
++        <string>T4 : état inconnu</string>
++       </property>
++       <property name="styleSheet">
++        <string>background-color: rgb(95,95,95); border: 1px solid rgb(55,55,55); border-radius: 9px; padding: 0px; margin: 0px;</string>
++       </property>
++       <property name="text">
++        <string/>
++       </property>
++       <property name="alignment">
++        <set>Qt::AlignmentFlag::AlignCenter</set>
++       </property>
++      </widget>
++     </widget>
+      <widget class="QTableWidget" name="tableWidget_voltage_results">
+       <property name="geometry">
+        <rect>
+         <x>10</x>
+-        <y>528</y>
+-        <width>810</width>
+-        <height>128</height>
++        <y>529</y>
++        <width>561</width>
++        <height>171</height>
+        </rect>
+       </property>
+       <property name="editTriggers">
+@@ -7888,9 +8314,9 @@
+       <property name="geometry">
+        <rect>
+         <x>10</x>
+-        <y>662</y>
++        <y>710</y>
+         <width>810</width>
+-        <height>40</height>
++        <height>38</height>
+        </rect>
+       </property>
+       <property name="styleSheet">
+@@ -7899,20 +8325,20 @@
+       <property name="text">
+        <string>Prêt - connecter le RP2040 et l'alimentation EA.</string>
+       </property>
+-      <property name="wordWrap">
+-       <bool>true</bool>
+-      </property>
+       <property name="alignment">
+        <set>Qt::AlignmentFlag::AlignCenter</set>
+       </property>
++      <property name="wordWrap">
++       <bool>true</bool>
++      </property>
+      </widget>
+      <widget class="QPushButton" name="pushButton_voltage_export_xlsx">
+       <property name="geometry">
+        <rect>
+-        <x>250</x>
+-        <y>710</y>
+-        <width>150</width>
+-        <height>32</height>
++        <x>580</x>
++        <y>620</y>
++        <width>241</width>
++        <height>41</height>
+        </rect>
+       </property>
+       <property name="text">
+@@ -7922,10 +8348,10 @@
+      <widget class="QPushButton" name="pushButton_voltage_export_pdf">
+       <property name="geometry">
+        <rect>
+-        <x>420</x>
+-        <y>710</y>
+-        <width>150</width>
+-        <height>32</height>
++        <x>580</x>
++        <y>660</y>
++        <width>241</width>
++        <height>41</height>
+        </rect>
+       </property>
+       <property name="text">
+@@ -7987,9 +8413,9 @@
+       <widget class="QLineEdit" name="lineEdit_calibration_operator">
+        <property name="geometry">
+         <rect>
+-         <x>80</x>
++         <x>70</x>
+          <y>24</y>
+-         <width>170</width>
++         <width>161</width>
+          <height>24</height>
+         </rect>
+        </property>
+@@ -7997,7 +8423,7 @@
+       <widget class="QLabel" name="label_calibration_meter">
+        <property name="geometry">
+         <rect>
+-         <x>265</x>
++         <x>240</x>
+          <y>24</y>
+          <width>105</width>
+          <height>22</height>
+@@ -8010,7 +8436,7 @@
+       <widget class="QLineEdit" name="lineEdit_calibration_meter">
+        <property name="geometry">
+         <rect>
+-         <x>370</x>
++         <x>330</x>
+          <y>24</y>
+          <width>170</width>
+          <height>24</height>
+@@ -8020,7 +8446,7 @@
+       <widget class="QLabel" name="label_calibration_date">
+        <property name="geometry">
+         <rect>
+-         <x>555</x>
++         <x>510</x>
+          <y>24</y>
+          <width>45</width>
+          <height>22</height>
+@@ -8033,18 +8459,18 @@
+       <widget class="QDateEdit" name="dateEdit_calibration_date">
+        <property name="geometry">
+         <rect>
+-         <x>600</x>
++         <x>540</x>
+          <y>24</y>
+          <width>120</width>
+          <height>24</height>
+         </rect>
+        </property>
+-       <property name="calendarPopup">
+-        <bool>true</bool>
+-       </property>
+        <property name="displayFormat">
+         <string>dd/MM/yyyy</string>
+        </property>
++       <property name="calendarPopup">
++        <bool>true</bool>
++       </property>
+       </widget>
+       <widget class="QLabel" name="label_calibration_valid_days">
+        <property name="geometry">
+@@ -8062,7 +8488,7 @@
+       <widget class="QSpinBox" name="spinBox_calibration_valid_days">
+        <property name="geometry">
+         <rect>
+-         <x>115</x>
++         <x>90</x>
+          <y>58</y>
+          <width>80</width>
+          <height>24</height>
+@@ -8081,7 +8507,7 @@
+       <widget class="QLabel" name="label_calibration_tolerance">
+        <property name="geometry">
+         <rect>
+-         <x>215</x>
++         <x>180</x>
+          <y>58</y>
+          <width>135</width>
+          <height>22</height>
+@@ -8094,7 +8520,7 @@
+       <widget class="QDoubleSpinBox" name="doubleSpinBox_calibration_tolerance_v">
+        <property name="geometry">
+         <rect>
+-         <x>350</x>
++         <x>300</x>
+          <y>58</y>
+          <width>90</width>
+          <height>24</height>
+@@ -8104,22 +8530,22 @@
+         <number>3</number>
+        </property>
+        <property name="minimum">
+-        <double>0.001</double>
++        <double>0.001000000000000</double>
+        </property>
+        <property name="maximum">
+-        <double>1.000</double>
++        <double>1.000000000000000</double>
+        </property>
+        <property name="singleStep">
+-        <double>0.005</double>
++        <double>0.005000000000000</double>
+        </property>
+        <property name="value">
+-        <double>0.050</double>
++        <double>0.050000000000000</double>
+        </property>
+       </widget>
+       <widget class="QPushButton" name="pushButton_calibration_request_ads">
+        <property name="geometry">
+         <rect>
+-         <x>555</x>
++         <x>490</x>
+          <y>58</y>
+          <width>165</width>
+          <height>24</height>
+@@ -8132,9 +8558,9 @@
+       <widget class="QLabel" name="label_calibration_live">
+        <property name="geometry">
+         <rect>
+-         <x>730</x>
++         <x>674</x>
+          <y>24</y>
+-         <width>65</width>
++         <width>121</width>
+          <height>58</height>
+         </rect>
+        </property>
+@@ -8171,12 +8597,12 @@
+          <height>22</height>
+         </rect>
+        </property>
+-       <property name="text">
+-        <string>Point                         Valeur multimètre (V)           RAW ADS capturé                 Action</string>
+-       </property>
+        <property name="styleSheet">
+         <string>font-weight: bold;</string>
+        </property>
++       <property name="text">
++        <string>Point                                                          Valeur multimètre (V)                     RAW ADS capturé                        Action</string>
++       </property>
+       </widget>
+       <widget class="QLabel" name="label_calibration_low">
+        <property name="geometry">
+@@ -8204,13 +8630,13 @@
+         <number>4</number>
+        </property>
+        <property name="minimum">
+-        <double>0.0000</double>
++        <double>0.000000000000000</double>
+        </property>
+        <property name="maximum">
+-        <double>5.0000</double>
++        <double>5.000000000000000</double>
+        </property>
+        <property name="value">
+-        <double>0.0000</double>
++        <double>0.000000000000000</double>
+        </property>
+       </widget>
+       <widget class="QLineEdit" name="lineEdit_calibration_low_raw">
+@@ -8222,12 +8648,12 @@
+          <height>24</height>
+         </rect>
+        </property>
+-       <property name="readOnly">
+-        <bool>true</bool>
+-       </property>
+        <property name="text">
+         <string>--</string>
+        </property>
++       <property name="readOnly">
++        <bool>true</bool>
++       </property>
+       </widget>
+       <widget class="QPushButton" name="pushButton_calibration_capture_low">
+        <property name="geometry">
+@@ -8268,13 +8694,13 @@
+         <number>4</number>
+        </property>
+        <property name="minimum">
+-        <double>1.0000</double>
++        <double>1.000000000000000</double>
+        </property>
+        <property name="maximum">
+-        <double>40.0000</double>
++        <double>40.000000000000000</double>
+        </property>
+        <property name="value">
+-        <double>30.0000</double>
++        <double>30.000000000000000</double>
+        </property>
+       </widget>
+       <widget class="QLineEdit" name="lineEdit_calibration_high_raw">
+@@ -8286,12 +8712,12 @@
+          <height>24</height>
+         </rect>
+        </property>
+-       <property name="readOnly">
+-        <bool>true</bool>
+-       </property>
+        <property name="text">
+         <string>--</string>
+        </property>
++       <property name="readOnly">
++        <bool>true</bool>
++       </property>
+       </widget>
+       <widget class="QPushButton" name="pushButton_calibration_capture_high">
+        <property name="geometry">
+@@ -8332,13 +8758,13 @@
+         <number>4</number>
+        </property>
+        <property name="minimum">
+-        <double>0.1000</double>
++        <double>0.100000000000000</double>
+        </property>
+        <property name="maximum">
+-        <double>40.0000</double>
++        <double>40.000000000000000</double>
+        </property>
+        <property name="value">
+-        <double>15.0000</double>
++        <double>15.000000000000000</double>
+        </property>
+       </widget>
+       <widget class="QLineEdit" name="lineEdit_calibration_check_raw">
+@@ -8350,12 +8776,12 @@
+          <height>24</height>
+         </rect>
+        </property>
+-       <property name="readOnly">
+-        <bool>true</bool>
+-       </property>
+        <property name="text">
+         <string>--</string>
+        </property>
++       <property name="readOnly">
++        <bool>true</bool>
++       </property>
+       </widget>
+       <widget class="QPushButton" name="pushButton_calibration_capture_check">
+        <property name="geometry">
+@@ -8587,8 +9013,8 @@
+     </rect>
+    </property>
+   </widget>
+-  <widget class="QStatusBar" name="statusbar" />
++  <widget class="QStatusBar" name="statusbar"/>
+  </widget>
+- <resources />
+- <connections />
+-</ui>
+\ No newline at end of file
++ <resources/>
++ <connections/>
++</ui>
