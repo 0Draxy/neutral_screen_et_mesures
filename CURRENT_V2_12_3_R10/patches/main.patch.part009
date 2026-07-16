@@ -1,0 +1,177 @@
+-                    SELECT lot, date_test, relais, ambiance_c, nom_test, sn,
+-                           relay_type, action, nb_inverseurs, capture_ms, pulse_ms,
+-                           resultat, overflow, details_json, timestamp
++                chrono = con.execute("""
++                    SELECT timestamp, date_test, sn, relay_type, action, nb_inverseurs, capture_ms, pulse_ms,
++                           resultat, overflow, ambiance_c, details_json
+                     FROM mesures_chrono_contacts
+-                    WHERE lot = ? AND relais = ? AND nom_test = ?
+-                    ORDER BY timestamp ASC, id ASC
+-                    """,
+-                    (group["lot"], group["relais"], group["nom_test"]),
+-                ).fetchall()
++                    WHERE lot=? AND relais=? AND nom_test=?
++                """, (group["lot"], group["relais"], group["nom_test"])).fetchall()
++                volts = con.execute("""
++                    SELECT timestamp, date_test, sn, relay_type, nb_inverseurs, pickup_global_v, dropout_global_v,
++                           resultat, ambiance_c, pickup_json, dropout_json
++                    FROM mesures_tension_fonctionnement
++                    WHERE lot=? AND relais=? AND nom_test=?
++                """, (group["lot"], group["relais"], group["nom_test"])).fetchall()
+         except Exception as exc:
+             QMessageBox.warning(self.window, "Détail chronométrie", f"Lecture impossible : {exc}")
+             return
+-        if not records:
++        combined=[]
++        for r in chrono:
++            combined.append((str(r["timestamp"] or ""), [self.format_datetime_fr(r["timestamp"]) or r["date_test"], "CHRONO", r["sn"], r["relay_type"], r["action"], r["nb_inverseurs"], r["capture_ms"], r["pulse_ms"], "", "", r["resultat"], "Oui" if int(r["overflow"] or 0) else "Non", r["ambiance_c"], r["details_json"]]))
++        for r in volts:
++            detail=json.dumps({"pickup":self.chrono_json_dict(r["pickup_json"]),"dropout":self.chrono_json_dict(r["dropout_json"])}, ensure_ascii=False)
++            combined.append((str(r["timestamp"] or ""), [self.format_datetime_fr(r["timestamp"]) or r["date_test"], "TENSION", r["sn"], r["relay_type"], "BE/BR", r["nb_inverseurs"], "", "", self.chrono_export_voltage_value(r["pickup_global_v"]), self.chrono_export_voltage_value(r["dropout_global_v"]), r["resultat"], "", r["ambiance_c"], detail]))
++        combined.sort(key=lambda x:x[0])
++        if not combined:
+             QMessageBox.information(self.window, "Détail chronométrie", "Aucune mesure trouvée pour cette sélection.")
+             return
+-        dialog = QDialog(self.window)
+-        dialog.setWindowTitle(f"Chronométrie - Lot {self.database_lot_display(group['lot'])}")
+-        dialog.resize(1100, 520)
+-        layout = QVBoxLayout(dialog)
+-        title = QLabel(
+-            f"Lot {self.database_lot_display(group['lot'])} - Relais {group['relais'] or '-'} - Test {group['nom_test'] or '-'}"
+-        )
+-        title.setStyleSheet("font-size: 14pt; font-weight: bold; color: black;")
+-        layout.addWidget(title)
+-        table = QTableWidget(dialog)
+-        table.setColumnCount(11)
+-        table.setHorizontalHeaderLabels(["Date", "SN", "Type", "Action", "Inv.", "Capture", "Pulse", "Résultat", "Overflow", "Ambiance", "Détails"])
+-        table.setRowCount(len(records))
+-        table.setEditTriggers(QTableWidget.NoEditTriggers)
+-        table.setSelectionBehavior(QTableWidget.SelectRows)
+-        for row, record in enumerate(records):
+-            vals = [
+-                self.format_datetime_fr(record["timestamp"]) or record["date_test"],
+-                record["sn"],
+-                record["relay_type"],
+-                record["action"],
+-                record["nb_inverseurs"],
+-                record["capture_ms"],
+-                record["pulse_ms"],
+-                record["resultat"],
+-                "Oui" if int(record["overflow"] or 0) else "Non",
+-                record["ambiance_c"],
+-                record["details_json"],
+-            ]
+-            for col, val in enumerate(vals):
+-                table.setItem(row, col, self.table_item(val))
+-        for col, width in enumerate([125, 80, 85, 75, 45, 70, 60, 75, 65, 75, 330]):
+-            table.setColumnWidth(col, width)
+-        table.horizontalHeader().setStretchLastSection(True)
+-        layout.addWidget(table)
+-        close_button = QPushButton("Fermer")
+-        close_button.clicked.connect(dialog.accept)
+-        layout.addWidget(close_button)
+-        dialog.exec()
++        dialog=QDialog(self.window); dialog.setWindowTitle(f"Chronométrie et tensions - Lot {self.database_lot_display(group['lot'])}"); dialog.resize(1350,560)
++        layout=QVBoxLayout(dialog); title=QLabel(f"Lot {self.database_lot_display(group['lot'])} - Relais {group['relais'] or '-'} - Test {group['nom_test'] or '-'}"); title.setStyleSheet("font-size: 14pt; font-weight: bold; color: black;"); layout.addWidget(title)
++        table=QTableWidget(dialog); headers=["Date","Source","SN","Type","Action","Inv.","Capture","Pulse","BE V","BR V","Résultat","Overflow","Ambiance","Détails"]; table.setColumnCount(len(headers)); table.setHorizontalHeaderLabels(headers); table.setRowCount(len(combined)); table.setEditTriggers(QTableWidget.NoEditTriggers); table.setSelectionBehavior(QTableWidget.SelectRows)
++        for row,(_ts,vals) in enumerate(combined):
++            for col,val in enumerate(vals): table.setItem(row,col,self.table_item(val))
++        table.horizontalHeader().setStretchLastSection(True); layout.addWidget(table); close_button=QPushButton("Fermer"); close_button.clicked.connect(dialog.accept); layout.addWidget(close_button); dialog.exec()
+ 
+     def chrono_database_delete_selected_group(self):
+         group = self.chrono_database_selected_group()
+@@ -4253,52 +4803,29 @@
+             QMessageBox.information(self.window, "Supprimer mesures", "Sélectionner un groupe de mesures à supprimer.")
+             return
+         try:
++            self.voltage_init_db()
+             with self.chrono_connect_db() as con:
+-                count = con.execute(
+-                    """
+-                    SELECT COUNT(*) AS n
+-                    FROM mesures_chrono_contacts
+-                    WHERE lot = ? AND relais = ? AND nom_test = ?
+-                    """,
+-                    (group["lot"], group["relais"], group["nom_test"]),
+-                ).fetchone()["n"]
++                chrono_count=con.execute("SELECT COUNT(*) AS n FROM mesures_chrono_contacts WHERE lot=? AND relais=? AND nom_test=?", (group["lot"],group["relais"],group["nom_test"])).fetchone()["n"]
++                voltage_count=con.execute("SELECT COUNT(*) AS n FROM mesures_tension_fonctionnement WHERE lot=? AND relais=? AND nom_test=?", (group["lot"],group["relais"],group["nom_test"])).fetchone()["n"]
+         except Exception as exc:
+-            QMessageBox.warning(self.window, "Supprimer mesures", f"Lecture impossible : {exc}")
+-            return
+-        if count <= 0:
+-            QMessageBox.information(self.window, "Supprimer mesures", "Aucune mesure trouvée pour cette sélection.")
+-            return
+-        label = f"Lot {self.database_lot_display(group['lot'])} / Relais {group['relais'] or '-'} / Test {group['nom_test'] or '-'}"
+-        if not self.big_message_box(
+-            "Supprimer mesures chronométrie",
+-            "SUPPRIMER CES MESURES ?",
+-            f"{label}\n\n"
+-            f"Cette opération supprimera définitivement {count} mesure(s) chronométrie.\n"
+-            "Une sauvegarde de sécurité sera faite avant suppression.\n\n"
+-            "Continuer ?",
+-            ok_text="OUI, SUPPRIMER",
+-            cancel_text="ANNULER",
+-            icon=QMessageBox.Warning,
+-        ):
+-            return
++            QMessageBox.warning(self.window, "Supprimer mesures", f"Lecture impossible : {exc}"); return
++        total=int(chrono_count or 0)+int(voltage_count or 0)
++        if total<=0:
++            QMessageBox.information(self.window, "Supprimer mesures", "Aucune mesure trouvée pour cette sélection."); return
++        label=f"Lot {self.database_lot_display(group['lot'])} / Relais {group['relais'] or '-'} / Test {group['nom_test'] or '-'}"
++        if not self.big_message_box("Supprimer mesures", "SUPPRIMER CES MESURES ?", f"{label}\n\nChronométrie : {chrono_count}\nTensions : {voltage_count}\nTotal : {total}\n\nUne sauvegarde sera faite avant suppression.", ok_text="OUI, SUPPRIMER", cancel_text="ANNULER", icon=QMessageBox.Warning): return
+         try:
+-            backup_files = self.database_backup_raw_files_for(self.chrono_db_file, "chronometrie_contacts", "avant_suppression_mesures")
++            backup_files=self.database_backup_raw_files_for(self.chrono_db_file,"chronometrie_contacts","avant_suppression_mesures")
+             with self.chrono_connect_db() as con:
+-                con.execute(
+-                    """
+-                    DELETE FROM mesures_chrono_contacts
+-                    WHERE lot = ? AND relais = ? AND nom_test = ?
+-                    """,
+-                    (group["lot"], group["relais"], group["nom_test"]),
+-                )
+-            self.database_admin_refresh()
+-            self.label_prod_status.setText(f"Mesures chronométrie supprimées : {count}.")
+-            details = f"Mesures supprimées : {count}\n{label}"
+-            if backup_files:
+-                details += "\n\nSauvegarde avant suppression :\n" + "\n".join(str(p) for p in backup_files)
+-            QMessageBox.information(self.window, "Supprimer mesures", details)
++                args=(group["lot"],group["relais"],group["nom_test"])
++                con.execute("DELETE FROM mesures_chrono_contacts WHERE lot=? AND relais=? AND nom_test=?",args)
++                con.execute("DELETE FROM mesures_tension_fonctionnement WHERE lot=? AND relais=? AND nom_test=?",args)
++            self.database_admin_refresh(); self.label_prod_status.setText(f"Mesures supprimées : {total}.")
++            details=f"Chronométrie supprimée : {chrono_count}\nTensions supprimées : {voltage_count}"
++            if backup_files: details += "\n\nSauvegarde :\n"+"\n".join(str(p) for p in backup_files)
++            QMessageBox.information(self.window,"Supprimer mesures",details)
+         except Exception as exc:
+-            QMessageBox.warning(self.window, "Supprimer mesures", f"Suppression impossible : {exc}")
++            QMessageBox.warning(self.window,"Supprimer mesures",f"Suppression impossible : {exc}")
+ 
+     def production_migrate_legacy_json_if_needed(self):
+         if self.production_get_setting("legacy_json_migrated", "0") == "1":
+@@ -4362,7 +4889,7 @@
+                 last_context = {}
+             self.current_access_code = str(self.production_get_setting("access_code", LOCK_ACCESS_CODE) or LOCK_ACCESS_CODE)
+             self.production_data = {
+-                "version": "2.12.2",
++                "version": "2.12.3",
+                 "last_context": last_context,
+                 "records": [],
+                 "access_code": self.current_access_code,
+@@ -4374,7 +4901,7 @@
+ 
+     def production_save_db(self):
+         self.production_init_db()
+-        self.production_data["version"] = "2.12.2"
++        self.production_data["version"] = "2.12.3"
+         self.production_data["access_code"] = self.current_access_code
+         self.production_set_setting("access_code", self.current_access_code)
+         self.production_set_setting(
+@@ -5005,8 +5532,7 @@
+             lambda text: self.sync_combo_text(self.comboBox_baudrate, text)
+         )
+         self.pushButton_prod_save_context.clicked.connect(self.production_prepare_and_open_auto_test)
+-        if self.pushButton_prod_reload_base is not None:
+-            self.pushButton_prod_reload_base.clicked.connect(self.production_reload_base)
