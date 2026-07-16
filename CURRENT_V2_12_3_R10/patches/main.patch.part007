@@ -1,0 +1,216 @@
+-                '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
+-                '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/>'
+-                '<Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/>'
+-                '</Relationships>'
+-            ),
+-            "xl/styles.xml": (
+-                '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+-                '<styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">'
+-                '<fonts count="2"><font><sz val="10"/><name val="Arial"/></font><font><b/><sz val="10"/><name val="Arial"/></font></fonts>'
+-                '<fills count="2"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill></fills>'
+-                '<borders count="1"><border><left/><right/><top/><bottom/><diagonal/></border></borders>'
+-                '<cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs>'
+-                '<cellXfs count="3"><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/>'
+-                '<xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/>'
+-                '<xf numFmtId="0" fontId="1" fillId="0" borderId="0" xfId="0"/></cellXfs>'
+-                '</styleSheet>'
+-            ),
+-            "xl/worksheets/sheet1.xml": sheet_xml,
+-        }
+-        with zipfile.ZipFile(path, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+-            for name, content in files.items():
+-                archive.writestr(name, content)
++    def write_chrono_lot_xlsx(self, path, lot, summary_cards, detail_cards):
++        """Crée les deux feuilles opérateur demandées dans un même classeur."""
++        from openpyxl import Workbook
++        from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
++
++        workbook = Workbook()
++        first = workbook.active
++        first.title = "Synthèse globale"
++        second = workbook.create_sheet("Détail tensions")
++
++        thin = Side(style="thin", color="B7B7B7")
++        border = Border(left=thin, right=thin, top=thin, bottom=thin)
++        title_fill = PatternFill("solid", fgColor="17365D")
++        section_fill = PatternFill("solid", fgColor="D9EAF7")
++        result_fill = PatternFill("solid", fgColor="E2F0D9")
++
++        def fill_sheet(sheet, sheet_title, cards):
++            sheet.sheet_view.showGridLines = False
++            sheet.column_dimensions["A"].width = 48
++            sheet.column_dimensions["B"].width = 22
++            sheet.column_dimensions["C"].width = 22
++            sheet.merge_cells("A1:C1")
++            cell = sheet["A1"]
++            cell.value = f"{sheet_title} - Lot {lot}"
++            cell.font = Font(name="Arial", size=14, bold=True, color="FFFFFF")
++            cell.fill = title_fill
++            cell.alignment = Alignment(horizontal="center", vertical="center")
++            sheet.row_dimensions[1].height = 24
++            row_index = 3
++            for card_index, card in enumerate(cards, start=1):
++                if card_index > 1:
++                    row_index += 1
++                for label, sanction, value in card:
++                    sheet.cell(row_index, 1, label)
++                    sheet.cell(row_index, 2, sanction)
++                    sheet.cell(row_index, 3, value)
++                    for col in range(1, 4):
++                        c = sheet.cell(row_index, col)
++                        c.font = Font(name="Arial", size=10, bold=(label in ("Lot", "Numéro de Relais")))
++                        c.border = border
++                        c.alignment = Alignment(vertical="center", wrap_text=True)
++                    if label in ("Résultat chronométrie", "Résultat tensions"):
++                        for col in range(1, 4):
++                            sheet.cell(row_index, col).fill = result_fill
++                    if label.startswith("Tension d'"):
++                        for col in range(1, 4):
++                            sheet.cell(row_index, col).fill = section_fill
++                    if isinstance(value, (int, float)):
++                        sheet.cell(row_index, 3).number_format = "0.000"
++                    row_index += 1
++            sheet.freeze_panes = "A3"
++            sheet.print_title_rows = "1:2"
++            sheet.page_setup.orientation = "portrait"
++            sheet.page_setup.fitToWidth = 1
++            sheet.sheet_properties.pageSetUpPr.fitToPage = True
++            sheet.print_options.horizontalCentered = True
++
++        fill_sheet(first, "Synthèse globale", summary_cards)
++        fill_sheet(second, "Détail tensions", detail_cards)
++        workbook.save(path)
+ 
+-    def write_chrono_lot_pdf(self, path, lot, records, cards):
++    def write_chrono_lot_pdf(self, path, lot, records, summary_cards, detail_cards, voltage_records=None):
+         writer = QPdfWriter(path)
+         writer.setPageSize(QPageSize(QPageSize.A4))
+         writer.setResolution(96)
+@@ -3543,45 +4120,46 @@
+             title_font = QFont("Arial", 15)
+             title_font.setBold(True)
+ 
+-            def draw_text(x, yy, text, font=None, max_chars=None):
++            def draw_text(x, yy, value, font=None, max_chars=None):
+                 painter.setFont(font or normal)
+-                text = str(text or "")
+-                if max_chars and len(text) > max_chars:
+-                    text = text[: max_chars - 3] + "..."
+-                painter.drawText(int(x), int(yy), text)
++                value = str(value if value is not None else "")
++                if max_chars and len(value) > max_chars:
++                    value = value[: max_chars - 3] + "..."
++                painter.drawText(int(x), int(yy), value)
+ 
+             def new_page():
+                 nonlocal y
+                 writer.newPage()
+                 y = margin
+ 
+-            total_records = len(records)
+-            sn_distincts = len({str(r["sn"] or "") for r in records if str(r["sn"] or "")})
+-            ok_count = sum(1 for r in records if str(r["resultat"]).upper() == "OK")
+-            default_count = total_records - ok_count
+-
+-            painter.setFont(title_font)
+-            painter.drawText(margin, y, f"Chronométrie contacts - Lot {lot}")
+-            y += line_h * 2
+-            draw_text(margin, y, f"Mesures enregistrées : {total_records}    SN distincts : {sn_distincts}    OK : {ok_count}    DEFAUT : {default_count}", bold)
+-            y += line_h
+-            draw_text(margin, y, f"Généré le : {time.strftime('%d/%m/%Y %H:%M')}", normal)
+-            y += line_h * 2
+-
+-            x_label = margin
+-            x_sanction = margin + 330
+-            x_value = margin + 455
+-            for card in cards:
+-                if y + line_h * (len(card) + 2) > page_h - margin:
++            def draw_section(section_title, cards, force_new_page=False):
++                nonlocal y
++                if force_new_page:
+                     new_page()
+-                for row_index, row in enumerate(card):
+-                    font = normal
+-                    draw_text(x_label, y, row[0], font, 48)
+-                    draw_text(x_sanction, y, row[1], font, 14)
+-                    draw_text(x_value, y, row[2], font, 18)
++                painter.setFont(title_font)
++                painter.drawText(margin, y, f"{section_title} - Lot {lot}")
++                y += line_h * 2
++                draw_text(margin, y, f"Généré le : {time.strftime('%d/%m/%Y %H:%M')}", normal)
++                y += line_h * 2
++                x_label = margin
++                x_sanction = margin + 330
++                x_value = margin + 455
++                for card in cards:
++                    if y + line_h * (len(card) + 2) > page_h - margin:
++                        new_page()
++                        draw_text(margin, y, f"{section_title} - Lot {lot} (suite)", bold)
++                        y += line_h * 2
++                    for label, sanction, value in card:
++                        row_font = bold if label in ("Lot", "Numéro de Relais") else normal
++                        draw_text(x_label, y, label, row_font, 48)
++                        draw_text(x_sanction, y, sanction, normal, 16)
++                        draw_text(x_value, y, value, normal, 18)
++                        y += line_h
++                    painter.drawLine(margin, y - 9, page_w - margin, y - 9)
+                     y += line_h
+-                painter.drawLine(margin, y - 9, page_w - margin, y - 9)
+-                y += line_h
++
++            draw_section("FEUILLE 1 - SYNTHÈSE GLOBALE", summary_cards)
++            draw_section("FEUILLE 2 - DÉTAIL TENSIONS", detail_cards, force_new_page=True)
+         finally:
+             painter.end()
+ 
+@@ -3681,8 +4259,15 @@
+             missing = [name for name in required if name not in cols]
+             if missing:
+                 raise RuntimeError("Colonnes manquantes dans mesures_chrono_contacts : " + ", ".join(missing))
+-            nb_mesures = con.execute("SELECT COUNT(*) AS n FROM mesures_chrono_contacts").fetchone()["n"]
+-        return nb_mesures, 0
++            nb_chrono = con.execute("SELECT COUNT(*) AS n FROM mesures_chrono_contacts").fetchone()["n"]
++            nb_tensions = 0
++            if self.database_external_has_table(con, "mesures_tension_fonctionnement"):
++                voltage_cols = {str(r["name"]) for r in con.execute("PRAGMA table_info(mesures_tension_fonctionnement)").fetchall()}
++                voltage_required = {"lot", "date_test", "relais", "nom_test", "sn", "relay_type", "resultat", "timestamp"}
++                if not voltage_required.issubset(voltage_cols):
++                    raise RuntimeError("Table mesures_tension_fonctionnement incomplète dans la base source.")
++                nb_tensions = con.execute("SELECT COUNT(*) AS n FROM mesures_tension_fonctionnement").fetchone()["n"]
++        return nb_chrono, nb_tensions
+ 
+     def database_merge_clicked(self):
+         if getattr(self, "auto_neutral_running", False):
+@@ -3712,7 +4297,7 @@
+             "FUSIONNER CETTE BASE ?",
+             (
+                 f"Base source :\n{path}\n\n"
+-                f"Contenu détecté :\n- {nb_essais} mesure(s) chronométrie\n\n"
++                f"Contenu détecté :\n- {nb_essais} mesure(s) chronométrie\n- {nb_ops} mesure(s) de tension\n\n"
+                 "La base chronométrie active sera sauvegardée avant fusion.\n"
+                 "Les mesures déjà présentes ne seront pas dupliquées."
+             )
+@@ -3728,7 +4313,7 @@
+         ):
+             return
+         if self.database_admin_is_chrono():
+-            self.chrono_database_merge_from_file(Path(path), nb_mesures_source=nb_essais)
++            self.chrono_database_merge_from_file(Path(path), nb_mesures_source=nb_essais, nb_tensions_source=nb_ops)
+             return
+         self.database_merge_from_file(Path(path), nb_essais_source=nb_essais)
+ 
+@@ -3816,8 +4401,8 @@
+             QMessageBox.warning(self.window, "Fusion base", f"Fusion impossible : {exc}")
+             self.label_prod_status.setText(f"Fusion base impossible : {exc}")
+ 
+-    def chrono_database_merge_from_file(self, source_path, nb_mesures_source=None):
+-        headers = [
++    def chrono_database_merge_from_file(self, source_path, nb_mesures_source=None, nb_tensions_source=None):
++        chrono_headers = [
+             "lot", "date_test", "relais", "ambiance_c", "nom_test", "sn",
+             "relay_type", "action", "nb_inverseurs", "capture_ms", "pulse_ms",
+             "limite_temps_ms", "limite_rebond_ms", "resultat", "overflow",
+@@ -3825,13 +4410,12 @@
+         ]
+         try:
+             backup_files = self.database_backup_raw_files_for(self.chrono_db_file, "chronometrie_contacts", "avant_fusion")
