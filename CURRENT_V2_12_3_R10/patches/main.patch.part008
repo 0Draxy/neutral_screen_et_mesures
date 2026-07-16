@@ -1,0 +1,187 @@
+-            self.chrono_init_db()
+-            inserted = 0
+-            skipped = 0
++            self.voltage_init_db()
++            inserted = skipped = inserted_voltage = skipped_voltage = 0
+             with self.database_connect_file(source_path) as source, self.chrono_connect_db() as dest:
+                 source_cols = {str(r["name"]) for r in source.execute("PRAGMA table_info(mesures_chrono_contacts)").fetchall()}
+                 select_parts = []
+-                for name in headers:
++                for name in chrono_headers:
+                     if name in source_cols:
+                         select_parts.append(name)
+                     elif name == "relay_type":
+@@ -3842,54 +4426,51 @@
+                         select_parts.append(f"0.0 AS {name}")
+                     else:
+                         select_parts.append(f"'' AS {name}")
+-                rows = source.execute(
+-                    "SELECT " + ", ".join(select_parts) + " FROM mesures_chrono_contacts ORDER BY timestamp ASC, id ASC"
+-                ).fetchall()
++                rows = source.execute("SELECT " + ", ".join(select_parts) + " FROM mesures_chrono_contacts ORDER BY timestamp ASC, id ASC").fetchall()
+                 duplicate_query = """
+                     SELECT id FROM mesures_chrono_contacts
+-                    WHERE lot = ? AND date_test = ? AND relais = ? AND nom_test = ?
+-                      AND sn = ? AND relay_type = ? AND action = ? AND timestamp = ?
+-                    LIMIT 1
+-                """
+-                insert_query = """
+-                    INSERT INTO mesures_chrono_contacts(
+-                        lot, date_test, relais, ambiance_c, nom_test, sn,
+-                        relay_type, action, nb_inverseurs, capture_ms, pulse_ms,
+-                        limite_temps_ms, limite_rebond_ms, resultat, overflow,
+-                        details_json, events_json, timestamp
+-                    )
+-                    VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
++                    WHERE lot=? AND date_test=? AND relais=? AND nom_test=?
++                      AND sn=? AND relay_type=? AND action=? AND timestamp=? LIMIT 1
+                 """
++                insert_query = "INSERT INTO mesures_chrono_contacts(" + ",".join(chrono_headers) + ") VALUES(" + ",".join("?" for _ in chrono_headers) + ")"
+                 for row in rows:
+-                    duplicate_values = (
+-                        str(row["lot"] or ""),
+-                        str(row["date_test"] or ""),
+-                        str(row["relais"] or ""),
+-                        str(row["nom_test"] or ""),
+-                        str(row["sn"] or ""),
+-                        str(row["relay_type"] or ""),
+-                        str(row["action"] or ""),
+-                        str(row["timestamp"] or ""),
+-                    )
+-                    if dest.execute(duplicate_query, duplicate_values).fetchone() is not None:
+-                        skipped += 1
+-                        continue
+-                    dest.execute(insert_query, tuple(row[h] for h in headers))
+-                    inserted += 1
++                    duplicate_values=(str(row["lot"] or ""),str(row["date_test"] or ""),str(row["relais"] or ""),str(row["nom_test"] or ""),str(row["sn"] or ""),str(row["relay_type"] or ""),str(row["action"] or ""),str(row["timestamp"] or ""))
++                    if dest.execute(duplicate_query,duplicate_values).fetchone() is not None:
++                        skipped += 1; continue
++                    dest.execute(insert_query,tuple(row[h] for h in chrono_headers)); inserted += 1
++
++                if self.database_external_has_table(source, "mesures_tension_fonctionnement"):
++                    source_voltage_cols = [str(r["name"]) for r in source.execute("PRAGMA table_info(mesures_tension_fonctionnement)").fetchall() if str(r["name"]) != "id"]
++                    dest_voltage_cols = {str(r["name"]) for r in dest.execute("PRAGMA table_info(mesures_tension_fonctionnement)").fetchall()}
++                    common = [name for name in source_voltage_cols if name in dest_voltage_cols]
++                    if common:
++                        voltage_rows = source.execute("SELECT " + ",".join(common) + " FROM mesures_tension_fonctionnement ORDER BY timestamp ASC, id ASC").fetchall()
++                        voltage_insert = "INSERT INTO mesures_tension_fonctionnement(" + ",".join(common) + ") VALUES(" + ",".join("?" for _ in common) + ")"
++                        for row in voltage_rows:
++                            exists = dest.execute("""
++                                SELECT id FROM mesures_tension_fonctionnement
++                                WHERE lot=? AND sn=? AND relais=? AND nom_test=? AND timestamp=?
++                                LIMIT 1
++                            """, (str(row["lot"] or ""),str(row["sn"] or ""),str(row["relais"] or ""),str(row["nom_test"] or ""),str(row["timestamp"] or ""))).fetchone()
++                            if exists is not None:
++                                skipped_voltage += 1; continue
++                            dest.execute(voltage_insert, tuple(row[name] for name in common)); inserted_voltage += 1
+             self.database_admin_refresh()
+-            self.label_prod_status.setText(f"Fusion chronométrie OK : {inserted} mesure(s) importée(s), {skipped} doublon(s) ignoré(s).")
++            self.label_prod_status.setText(f"Fusion OK : {inserted} chrono + {inserted_voltage} tension(s), doublons {skipped + skipped_voltage}.")
+             details = (
+-                f"Fusion chronométrie terminée.\n\n"
+-                f"Mesures source : {nb_mesures_source if nb_mesures_source is not None else inserted + skipped}\n"
+-                f"Mesures importées : {inserted}\n"
+-                f"Doublons ignorés : {skipped}"
++                "Fusion chronométrie + tensions terminée.\n\n"
++                f"Chronométrie source : {nb_mesures_source if nb_mesures_source is not None else inserted + skipped}\n"
++                f"Chronométrie importée : {inserted}\n"
++                f"Tensions source : {nb_tensions_source if nb_tensions_source is not None else inserted_voltage + skipped_voltage}\n"
++                f"Tensions importées : {inserted_voltage}\n"
++                f"Doublons ignorés : {skipped + skipped_voltage}"
+             )
+             if backup_files:
+                 details += "\n\nSauvegarde avant fusion :\n" + "\n".join(str(p) for p in backup_files)
+             QMessageBox.information(self.window, "Fusion base", details)
+         except Exception as exc:
+-            QMessageBox.warning(self.window, "Fusion base", f"Fusion chronométrie impossible : {exc}")
+-            self.label_prod_status.setText(f"Fusion chronométrie impossible : {exc}")
++            QMessageBox.warning(self.window, "Fusion base", f"Fusion chronométrie/tensions impossible : {exc}")
++            self.label_prod_status.setText(f"Fusion impossible : {exc}")
+ 
+     def database_recreate_default_clicked(self):
+         if getattr(self, "auto_neutral_running", False):
+@@ -3925,7 +4506,7 @@
+         try:
+             backup_files = self.database_backup_raw_files(reason_slug)
+             self.database_remove_active_files()
+-            self.production_data = {"version": "2.12.2", "last_context": {}, "records": [], "access_code": access_code}
++            self.production_data = {"version": "2.12.3", "last_context": {}, "records": [], "access_code": access_code}
+             self.current_access_code = access_code
+             self.production_init_db()
+             self.production_set_setting("access_code", access_code)
+@@ -3954,7 +4535,7 @@
+         try:
+             backup_files = self.database_backup_raw_files_for(self.chrono_db_file, "chronometrie_contacts", reason_slug)
+             self.database_remove_files_for(self.chrono_db_file)
+-            self.chrono_init_db()
++            self.voltage_init_db()
+             self.database_admin_refresh()
+             self.label_prod_status.setText("Base chronométrie recréée : base vide prête.")
+             if show_success:
+@@ -4087,22 +4668,18 @@
+     def chrono_export_lot_xlsx_from_database(self, lot):
+         try:
+             records = self.chrono_records_for_lot(lot)
++            voltage_records = self.voltage_records_for_lot(lot)
+         except Exception as exc:
+             QMessageBox.warning(self.window, "XLSX lot", f"Lecture base impossible : {exc}")
+             return
+-        if not records:
+-            QMessageBox.information(self.window, "XLSX lot", f"Aucune mesure chronométrie trouvée pour le lot {self.database_lot_display(lot)}.")
++        if not records and not voltage_records:
++            QMessageBox.information(self.window, "XLSX lot", f"Aucune mesure chronométrie ou tension trouvée pour le lot {self.database_lot_display(lot)}.")
+             return
+-        path = self.ask_export_path(
+-            "Exporter le lot chronométrie en XLSX",
+-            f"chronometrie_lot_{self.filename_safe(lot)}.xlsx",
+-            "Excel (*.xlsx)",
+-            ".xlsx",
+-        )
++        path = self.ask_export_path("Exporter chronométrie et tensions en XLSX", f"chronometrie_et_tensions_lot_{self.filename_safe(lot)}.xlsx", "Excel (*.xlsx)", ".xlsx")
+         if not path:
+             return
+         try:
+-            self.write_chrono_lot_xlsx(path, lot, self.chrono_export_measure_cards(records))
++            self.write_chrono_lot_xlsx(path, lot, self.chrono_export_measure_cards(records, voltage_records))
+             QMessageBox.information(self.window, "XLSX lot", f"Export XLSX créé :\n{path}")
+         except Exception as exc:
+             QMessageBox.warning(self.window, "XLSX lot", f"Export impossible : {exc}")
+@@ -4110,23 +4687,20 @@
+     def chrono_export_lot_pdf_from_database(self, lot):
+         try:
+             records = self.chrono_records_for_lot(lot)
++            voltage_records = self.voltage_records_for_lot(lot)
+         except Exception as exc:
+             QMessageBox.warning(self.window, "PDF lot", f"Lecture base impossible : {exc}")
+             return
+-        if not records:
+-            QMessageBox.information(self.window, "PDF lot", f"Aucune mesure chronométrie trouvée pour le lot {self.database_lot_display(lot)}.")
++        if not records and not voltage_records:
++            QMessageBox.information(self.window, "PDF lot", f"Aucune mesure chronométrie ou tension trouvée pour le lot {self.database_lot_display(lot)}.")
+             return
+-        path = self.ask_export_path(
+-            "Exporter le lot chronométrie en PDF",
+-            f"chronometrie_lot_{self.filename_safe(lot)}.pdf",
+-            "PDF (*.pdf)",
+-            ".pdf",
+-        )
++        path = self.ask_export_path("Exporter chronométrie et tensions en PDF", f"chronometrie_et_tensions_lot_{self.filename_safe(lot)}.pdf", "PDF (*.pdf)", ".pdf")
+         if not path:
+             return
+         try:
+-            self.write_chrono_lot_pdf(path, lot, records, self.chrono_export_measure_cards(records))
+-            QMessageBox.information(self.window, "PDF lot", f"Rapport PDF créé :\n{path}")
++            summary_cards, detail_cards = self.chrono_export_measure_sheets(records, voltage_records)
++            self.write_chrono_lot_pdf(path, lot, records, summary_cards, detail_cards, voltage_records)
++            QMessageBox.information(self.window, "PDF lot", f"Export PDF créé :\n{path}")
+         except Exception as exc:
+             QMessageBox.warning(self.window, "PDF lot", f"Création PDF impossible : {exc}")
+ 
+@@ -4189,63 +4763,39 @@
+             QMessageBox.information(self.window, "Détail chronométrie", "Sélectionner un groupe de mesures.")
+             return
+         try:
++            self.voltage_init_db()
+             with self.chrono_connect_db() as con:
+-                records = con.execute(
+-                    """
