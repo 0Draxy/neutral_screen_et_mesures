@@ -1,0 +1,53 @@
+             return
+-        self.write_table_xlsx(path, f"Tensions de fonctionnement - Lot {lot}", self.voltage_export_headers(), rows)
+-        QMessageBox.information(self.window, "Export tensions", f"Export XLSX créé :\n{path}")
++        summary_cards, detail_cards = self.chrono_export_measure_sheets(chrono_records, voltage_records)
++        self.write_chrono_lot_xlsx(path, lot, summary_cards, detail_cards)
++        QMessageBox.information(self.window, "Export mesures", f"Export XLSX créé :\n{path}")
+ 
+     def voltage_export_lot_pdf(self):
+         lot = self.lineEdit_voltage_lot.text().strip()
+         if not lot:
+-            QMessageBox.warning(self.window, "Export tensions", "Renseigner le lot.")
++            QMessageBox.warning(self.window, "Export mesures", "Renseigner le lot.")
+             return
+-        rows = self.voltage_records_for_lot(lot)
+-        if not rows:
+-            QMessageBox.information(self.window, "Export tensions", f"Aucune mesure pour le lot {lot}.")
++        try:
++            chrono_records = self.chrono_records_for_lot(lot)
++            voltage_records = self.voltage_records_for_lot(lot)
++        except Exception as exc:
++            QMessageBox.warning(self.window, "Export mesures", f"Lecture base impossible : {exc}")
+             return
+-        headers = [
+-            ("lot", "Lot"), ("relais", "Relais"), ("sn", "SN"), ("relay_type", "Type"),
+-            ("nb_inverseurs", "Inv."), ("pickup_global_v", "Collage / BE V"),
+-            ("dropout_global_v", "Décollage / BR V"), ("calibration_id", "Cal."),
+-            ("calibration_error_v", "Err. cal. V"), ("resultat", "Résultat"),
+-        ]
+-        path = self.ask_export_path("Exporter tensions de fonctionnement", f"tensions_fonctionnement_lot_{self.filename_safe(lot)}.pdf", "PDF (*.pdf)", ".pdf")
+-        if not path:
++        if not chrono_records and not voltage_records:
++            QMessageBox.information(self.window, "Export mesures", f"Aucune mesure pour le lot {lot}.")
+             return
+-        self.write_table_pdf(
+-            path,
+-            f"Tensions de fonctionnement - Lot {lot} - Capture premier passage",
+-            headers,
+-            rows,
++        path = self.ask_export_path(
++            "Exporter les mesures complètes",
++            f"mesures_completes_lot_{self.filename_safe(lot)}.pdf",
++            "PDF (*.pdf)",
++            ".pdf",
+         )
+-        QMessageBox.information(self.window, "Export tensions", f"Export PDF créé :\n{path}")
++        if not path:
++            return
++        summary_cards, detail_cards = self.chrono_export_measure_sheets(chrono_records, voltage_records)
++        self.write_chrono_lot_pdf(path, lot, chrono_records, summary_cards, detail_cards, voltage_records)
++        QMessageBox.information(self.window, "Export mesures", f"Export PDF créé :\n{path}")
+ 
+     def show(self):
+         self.window.show()
