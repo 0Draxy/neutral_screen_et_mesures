@@ -1,0 +1,178 @@
+-            self.label_db_admin_file.setText(str(self.chrono_db_file))
+-            self.label_db_admin_status.setText(f"Base chronométrie non lisible : {exc}")
+-            self.label_db_admin_status.setStyleSheet(
+-                "background-color: rgb(255,225,225); border: 2px solid rgb(180,40,40); padding: 8px; font-size: 11pt; font-weight: bold;"
+-            )
++            self.label_db_admin_status.setText(f"Base non lisible : {exc}")
++            self.label_db_admin_status.setStyleSheet("background-color: rgb(255,225,225); border: 2px solid rgb(180,40,40); padding: 8px; font-size: 11pt; font-weight: bold;")
+ 
+     def database_add_operator(self):
+         name = self.lineEdit_db_operator.text().strip()
+@@ -2773,73 +3210,92 @@
+             if not self.database_external_has_table(con, expected_table):
+                 raise RuntimeError(f"table {expected_table} absente")
+ 
++    def chrono_database_combined_rows(self):
++        self.voltage_init_db()
++        rows = []
++        with self.chrono_connect_db() as con:
++            chrono = con.execute("""
++                SELECT lot, date_test, relais, ambiance_c, nom_test, sn, relay_type,
++                       action, nb_inverseurs, capture_ms, pulse_ms, limite_temps_ms,
++                       limite_rebond_ms, resultat, overflow, details_json, events_json, timestamp
++                FROM mesures_chrono_contacts
++            """).fetchall()
++            voltages = con.execute("""
++                SELECT lot, date_test, relais, ambiance_c, nom_test, sn, relay_type,
++                       nb_inverseurs, pickup_global_v, dropout_global_v, pickup_json,
++                       dropout_json, pickup_plausibility_status, dropout_plausibility_status,
++                       ea_stop_confirmed, ea_final_voltage_v, resultat, timestamp
++                FROM mesures_tension_fonctionnement
++            """).fetchall()
++        for r in chrono:
++            rows.append({
++                "source":"CHRONO", "lot":r["lot"], "date_test":r["date_test"], "relais":r["relais"],
++                "ambiance_c":r["ambiance_c"], "nom_test":r["nom_test"], "sn":r["sn"], "relay_type":r["relay_type"],
++                "action":r["action"], "nb_inverseurs":r["nb_inverseurs"], "capture_ms":r["capture_ms"], "pulse_ms":r["pulse_ms"],
++                "limite_temps_ms":r["limite_temps_ms"], "limite_rebond_ms":r["limite_rebond_ms"],
++                "tension_be_v":None, "tension_br_v":None,
++                "tension_be_i1_v":None, "tension_be_i2_v":None, "tension_be_i3_v":None, "tension_be_i4_v":None,
++                "tension_br_i1_v":None, "tension_br_i2_v":None, "tension_br_i3_v":None, "tension_br_i4_v":None,
++                "plausibilite_be":"", "plausibilite_br":"",
++                "arret_ea_confirme":"", "tension_ea_finale_v":None, "resultat":r["resultat"], "overflow":r["overflow"],
++                "details_json":r["details_json"], "events_json":r["events_json"], "timestamp":r["timestamp"],
++            })
++        for r in voltages:
++            pickup = self.chrono_json_dict(r["pickup_json"])
++            dropout = self.chrono_json_dict(r["dropout_json"])
++            details=json.dumps({"pickup":pickup,"dropout":dropout}, ensure_ascii=False)
++            stop=int(r["ea_stop_confirmed"] if r["ea_stop_confirmed"] is not None else -1)
++            rows.append({
++                "source":"TENSION", "lot":r["lot"], "date_test":r["date_test"], "relais":r["relais"],
++                "ambiance_c":r["ambiance_c"], "nom_test":r["nom_test"], "sn":r["sn"], "relay_type":r["relay_type"],
++                "action":"BE/BR", "nb_inverseurs":r["nb_inverseurs"], "capture_ms":None, "pulse_ms":None,
++                "limite_temps_ms":None, "limite_rebond_ms":None,
++                "tension_be_v":r["pickup_global_v"], "tension_br_v":r["dropout_global_v"],
++                "tension_be_i1_v":pickup.get("1"), "tension_be_i2_v":pickup.get("2"), "tension_be_i3_v":pickup.get("3"), "tension_be_i4_v":pickup.get("4"),
++                "tension_br_i1_v":dropout.get("1"), "tension_br_i2_v":dropout.get("2"), "tension_br_i3_v":dropout.get("3"), "tension_br_i4_v":dropout.get("4"),
++                "plausibilite_be":r["pickup_plausibility_status"], "plausibilite_br":r["dropout_plausibility_status"],
++                "arret_ea_confirme":"OUI" if stop==1 else "NON" if stop==0 else "NON VÉRIFIÉ",
++                "tension_ea_finale_v":r["ea_final_voltage_v"], "resultat":r["resultat"], "overflow":None,
++                "details_json":details, "events_json":"", "timestamp":r["timestamp"],
++            })
++        rows.sort(key=lambda r:(str(r["lot"] or "").lower(), str(r["timestamp"] or ""), str(r["sn"] or "")))
++        return rows
++
+     def chrono_database_export_csv(self):
+-        path = self.ask_export_path(
+-            "Exporter les mesures chronométrie en CSV",
+-            f"chronometrie_contacts_{time.strftime('%Y%m%d_%H%M')}.csv",
+-            "CSV (*.csv);;Tous les fichiers (*)",
+-            ".csv",
+-        )
++        path = self.ask_export_path("Exporter chronométrie et tensions en CSV", f"chronometrie_et_tensions_{time.strftime('%Y%m%d_%H%M')}.csv", "CSV (*.csv);;Tous les fichiers (*)", ".csv")
+         if not path:
+             return
+-        headers = [
+-            "lot", "date_test", "relais", "ambiance_c", "nom_test", "sn",
+-            "relay_type", "action", "nb_inverseurs", "capture_ms", "pulse_ms",
+-            "limite_temps_ms", "limite_rebond_ms", "resultat", "overflow",
+-            "details_json", "events_json", "timestamp",
+-        ]
++        headers=["source","lot","date_test","relais","ambiance_c","nom_test","sn","relay_type","action","nb_inverseurs","capture_ms","pulse_ms","limite_temps_ms","limite_rebond_ms","tension_be_v","tension_br_v","tension_be_i1_v","tension_be_i2_v","tension_be_i3_v","tension_be_i4_v","tension_br_i1_v","tension_br_i2_v","tension_br_i3_v","tension_br_i4_v","plausibilite_be","plausibilite_br","arret_ea_confirme","tension_ea_finale_v","resultat","overflow","details_json","events_json","timestamp"]
+         try:
+-            self.chrono_init_db()
+-            with self.chrono_connect_db() as con:
+-                rows = con.execute(
+-                    """
+-                    SELECT lot, date_test, relais, ambiance_c, nom_test, sn,
+-                           relay_type, action, nb_inverseurs, capture_ms, pulse_ms,
+-                           limite_temps_ms, limite_rebond_ms, resultat, overflow,
+-                           details_json, events_json, timestamp
+-                    FROM mesures_chrono_contacts
+-                    ORDER BY lot COLLATE NOCASE ASC, timestamp ASC, id ASC
+-                    """
+-                ).fetchall()
+-            with open(path, "w", encoding="utf-8-sig", newline="") as f:
+-                writer = csv.writer(f, delimiter=";")
+-                writer.writerow(headers)
+-                for row in rows:
+-                    writer.writerow([row[h] for h in headers])
+-            QMessageBox.information(self.window, "Export CSV", f"Export chronométrie créé :\n{path}")
++            rows=self.chrono_database_combined_rows()
++            with open(path,"w",encoding="utf-8-sig",newline="") as f:
++                writer=csv.writer(f,delimiter=";"); writer.writerow(headers)
++                for row in rows: writer.writerow([row[h] for h in headers])
++            QMessageBox.information(self.window,"Export CSV",f"Export chronométrie + tensions créé :\n{path}")
+         except Exception as exc:
+-            QMessageBox.warning(self.window, "Export CSV", f"Export chronométrie impossible : {exc}")
++            QMessageBox.warning(self.window,"Export CSV",f"Export impossible : {exc}")
+ 
+     def database_admin_export_dataset(self):
+         if self.database_admin_is_chrono():
+             headers = [
+-                ("lot", "Lot"), ("date_test", "Date test"), ("relais", "Relais"),
+-                ("ambiance_c", "Ambiance °C"), ("nom_test", "Nom test"), ("sn", "SN"),
+-                ("relay_type", "Type"), ("action", "Action"), ("nb_inverseurs", "Inv."),
+-                ("capture_ms", "Capture ms"), ("pulse_ms", "Pulse ms"),
+-                ("limite_temps_ms", "Limite temps"), ("limite_rebond_ms", "Limite rebond"),
+-                ("resultat", "Résultat"), ("overflow", "Overflow"),
+-                ("details_json", "Détails JSON"), ("events_json", "Événements JSON"),
+-                ("timestamp", "Horodatage"),
++                ("source","Source"),("lot","Lot"),("date_test","Date test"),("relais","Relais"),
++                ("ambiance_c","Ambiance °C"),("nom_test","Nom test"),("sn","SN"),("relay_type","Type"),
++                ("action","Action"),("nb_inverseurs","Inv."),("capture_ms","Capture ms"),("pulse_ms","Pulse ms"),
++                ("limite_temps_ms","Limite temps"),("limite_rebond_ms","Limite rebond"),
++                ("tension_be_v","Tension collage/BE globale V"),("tension_br_v","Tension décollage/BR globale V"),
++                ("tension_be_i1_v","BE I1 V"),("tension_be_i2_v","BE I2 V"),("tension_be_i3_v","BE I3 V"),("tension_be_i4_v","BE I4 V"),
++                ("tension_br_i1_v","BR I1 V"),("tension_br_i2_v","BR I2 V"),("tension_br_i3_v","BR I3 V"),("tension_br_i4_v","BR I4 V"),
++                ("plausibilite_be","Plausibilité BE"),("plausibilite_br","Plausibilité BR"),
++                ("arret_ea_confirme","Arrêt EA confirmé"),("tension_ea_finale_v","Tension EA finale V"),
++                ("resultat","Résultat"),("overflow","Overflow"),("details_json","Détails JSON"),
++                ("events_json","Événements JSON"),("timestamp","Horodatage"),
+             ]
+             pdf_headers = [
+-                ("lot", "Lot"), ("date_test", "Date"), ("relais", "Relais"),
+-                ("nom_test", "Test"), ("sn", "SN"), ("relay_type", "Type"),
+-                ("action", "Action"), ("nb_inverseurs", "Inv."), ("resultat", "Résultat"),
++                ("source","Source"),("lot","Lot"),("date_test","Date"),("relais","Relais"),
++                ("nom_test","Test"),("sn","SN"),("relay_type","Type"),("action","Action"),
++                ("tension_be_v","BE V"),("tension_br_v","BR V"),("resultat","Résultat"),
+             ]
+-            self.chrono_init_db()
+-            with self.chrono_connect_db() as con:
+-                rows = con.execute(
+-                    """
+-                    SELECT lot, date_test, relais, ambiance_c, nom_test, sn,
+-                           relay_type, action, nb_inverseurs, capture_ms, pulse_ms,
+-                           limite_temps_ms, limite_rebond_ms, resultat, overflow,
+-                           details_json, events_json, timestamp
+-                    FROM mesures_chrono_contacts
+-                    ORDER BY lot COLLATE NOCASE ASC, timestamp ASC, id ASC
+-                    """
+-                ).fetchall()
+-            return "chronometrie_contacts", "Base Chronométrie contacts", headers, pdf_headers, rows
++            return "chronometrie_et_tensions", "Base Chronométrie contacts et tensions", headers, pdf_headers, self.chrono_database_combined_rows()
+ 
+         headers = [
+             ("lot", "Lot"), ("sn", "SN"), ("designation", "Désignation"),
+@@ -3016,6 +3472,8 @@
+     def write_table_pdf(self, path, title, headers, rows):
+         writer = QPdfWriter(path)
+         writer.setPageSize(QPageSize(QPageSize.A4))
++        if len(headers) > 9:
++            writer.setPageOrientation(QPageLayout.Landscape)
+         writer.setResolution(96)
+         painter = QPainter(writer)
+         if not painter.isActive():
+@@ -3023,13 +3481,14 @@
+         try:
+             page_w = writer.width()
+             page_h = writer.height()
+-            margin = 34
++            margin = 28 if len(headers) > 9 else 34
+             y = margin
+-            line_h = 16
+-            normal = QFont("Arial", 7)
+-            bold = QFont("Arial", 8)
++            dense_table = len(headers) > 9
