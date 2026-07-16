@@ -1,0 +1,252 @@
++        self.chrono_external_supply_mode = False
++        self.measure_all_active = False
++        self.measure_all_phase = ""
++        self.measure_all_context = {}
++        self.measure_all_chrono_results = {}
++        self.chrono_auto_sequence_active = False
++        self.chrono_auto_sequence_queue = []
++        self.chrono_auto_prereset_pending = False
++        self.chrono_measure_running = False
++        self.update_button_states()
++        if not preserve_status:
++            suffix = "" if stop_confirmed else " — ARRÊT EA NON CONFIRMÉ, COUPER MANUELLEMENT"
++            self.label_voltage_status.setText(f"MESURE TOTALE INTERROMPUE — {reason}{suffix}")
++            self.label_voltage_status.setStyleSheet(
++                "background-color: rgb(190,0,0); color: white; font-weight: bold; border: 2px solid black;"
++            )
++        if not stop_confirmed:
++            self.big_message_box(
++                "Sécurité alimentation EA",
++                "ARRÊT EA NON CONFIRMÉ",
++                self.voltage_last_stop_diagnostic or str(reason),
++                ok_text="J'AI COUPÉ MANUELLEMENT",
++                icon=QMessageBox.Critical,
++            )
++
++    def voltage_stop_clicked(self):
++        """Le bouton d'arrêt couvre la phase tension et la phase chronométrie de MESURER TOUT."""
++        if getattr(self, "measure_all_active", False):
++            if self.voltage_test_running:
++                self.voltage_abort_test("Mesure totale arrêtée par l'opérateur.")
++                return
++            try:
++                if self.is_connected():
++                    self.send_command("STOP")
++            except Exception:
++                pass
++            self.voltage_measure_all_fail("arrêt demandé par l'opérateur")
++            return
++        self.voltage_abort_test()
++
++    def voltage_reset_assessment_state(self):
++        """Réinitialise les verdicts propres à un essai de tension."""
++        self.voltage_plausibility = {"PICKUP": {}, "DROPOUT": {}}
++        self.voltage_result_override = ""
++        self.voltage_ea_stop_confirmation = self.voltage_empty_stop_confirmation()
++        self.voltage_last_stop_diagnostic = ""
++        self.voltage_last_saved_result = ""
++
++    @staticmethod
++    def voltage_empty_stop_confirmation():
++        return {
++            "confirmed": None,
++            "generator_selection_before": "",
++            "generator_selection": "",
++            "generator_state": "",
++            "output_state": "",
++            "measured_voltage_v": None,
++            "scpi_error": "",
++            "errors": [],
++            "context": "",
++            "poll_count": 0,
++            "confirmation_elapsed_s": 0.0,
++        }
++
++    def voltage_stop_ea_and_confirm(self, context, show_alert=False):
++        info = self.voltage_empty_stop_confirmation()
++        info["context"] = str(context or "arrêt")
++        try:
++            if not self.ea_psu.connected:
++                raise RuntimeError("Alimentation EA non connectée.")
++            checked = self.ea_psu.safe_stop_and_confirm()
++            info.update(checked)
++        except Exception as exc:
++            info["confirmed"] = False
++            info["errors"] = list(info.get("errors", [])) + [str(exc)]
++        self.voltage_ea_stop_confirmation = info
++        if info.get("confirmed"):
++            self.voltage_last_stop_diagnostic = ""
++            return True
++
++        self.voltage_result_override = "ARRET_EA_NON_CONFIRME"
++        voltage = info.get("measured_voltage_v")
++        voltage_text = "non relue" if voltage is None else f"{float(voltage):.3f} V"
++        errors = "; ".join(str(item) for item in info.get("errors", []) if str(item).strip()) or "confirmation absente"
++        elapsed = float(info.get("confirmation_elapsed_s") or 0.0)
++        polls = int(info.get("poll_count") or 0)
++        alert = (
++            "ARRÊT EA NON CONFIRMÉ — COUPER MANUELLEMENT L'ALIMENTATION. "
++            f"Contexte : {info['context']}. Sortie={info.get('output_state') or '--'}, "
++            f"générateur initial={info.get('generator_selection_before') or '--'}, "
++            f"générateur final={info.get('generator_selection') or info.get('generator_state') or '--'}, "
++            f"tension={voltage_text}, contrôles={polls}, durée={elapsed:.2f} s, "
++            f"SCPI={info.get('scpi_error') or '--'}. Détail : {errors}"
++        )
++        self.voltage_last_stop_diagnostic = alert
++        if hasattr(self, "label_voltage_ea_status"):
++            self.label_voltage_ea_status.setText(alert)
++            self.label_voltage_ea_status.setStyleSheet(
++                "background-color: rgb(190,0,0); color: white; font-weight: bold; border: 2px solid black;"
++            )
++        if show_alert:
++            self.big_message_box(
++                "Sécurité alimentation EA",
++                "ARRÊT EA NON CONFIRMÉ",
++                alert,
++                ok_text="J'AI COUPÉ MANUELLEMENT",
++                icon=QMessageBox.Critical,
++            )
++        return False
++
++    def voltage_evaluate_plausibility(self, mode):
++        mode = str(mode).upper()
++        info = self.voltage_ramp_info if self.voltage_ramp_info and self.voltage_ramp_info.get("mode") == mode else None
++        measured = self.voltage_results.get(mode, {}).get("GLOBAL")
++        elapsed_us = self.voltage_time_results.get(mode, {}).get("GLOBAL")
++        result = {
++            "status": "NON_VERIFIE",
++            "mode": mode,
++            "measured_v": measured,
++            "elapsed_s": None if elapsed_us is None else float(elapsed_us) / 1_000_000.0,
++            "expected_elapsed_s": None,
++            "elapsed_error_s": None,
++            "tolerance_s": None,
++            "detail": "Données insuffisantes pour le contrôle de plausibilité.",
++        }
++        if not info or measured is None or elapsed_us is None:
++            self.voltage_plausibility[mode] = result
++            return result
++
++        start_v = float(info["start_v"])
++        end_v = float(info["end_v"])
++        duration_s = max(0.0001, float(info["duration_s"]))
++        span_v = end_v - start_v
++        if abs(span_v) < 1e-12:
++            result["detail"] = "Rampe sans écart de tension : plausibilité temporelle impossible."
++            self.voltage_plausibility[mode] = result
++            return result
++
++        fraction = (float(measured) - start_v) / span_v
++        expected_elapsed_s = duration_s * fraction
++        elapsed_s = float(elapsed_us) / 1_000_000.0
++        elapsed_error_s = elapsed_s - expected_elapsed_s
++        tolerance_s = max(VOLTAGE_PLAUSIBILITY_MIN_TOL_S, duration_s * VOLTAGE_PLAUSIBILITY_REL_TOL)
++        voltage_margin_v = max(0.100, abs(span_v) * 0.010)
++        low_v = min(start_v, end_v) - voltage_margin_v
++        high_v = max(start_v, end_v) + voltage_margin_v
++        in_voltage_range = low_v <= float(measured) <= high_v
++        time_ok = -tolerance_s <= elapsed_error_s <= tolerance_s
++
++        result.update({
++            "expected_elapsed_s": expected_elapsed_s,
++            "elapsed_error_s": elapsed_error_s,
++            "tolerance_s": tolerance_s,
++            "fraction": fraction,
++            "start_v": start_v,
++            "end_v": end_v,
++            "duration_s": duration_s,
++        })
++        if in_voltage_range and time_ok:
++            result["status"] = "OK"
++            result["detail"] = (
++                f"Plausibilité OK : t mesuré {elapsed_s:.3f} s, t théorique {expected_elapsed_s:.3f} s, "
++                f"écart {elapsed_error_s:+.3f} s, tolérance ±{tolerance_s:.3f} s."
++            )
++        else:
++            result["status"] = "INCOHERENT"
++            causes = []
++            if not in_voltage_range:
++                causes.append(f"tension {float(measured):.3f} V hors rampe {start_v:.3f}→{end_v:.3f} V")
++            if not time_ok:
++                causes.append(
++                    f"écart temporel {elapsed_error_s:+.3f} s supérieur à ±{tolerance_s:.3f} s"
++                )
++            result["detail"] = "Plausibilité incohérente : " + "; ".join(causes) + "."
++        self.voltage_plausibility[mode] = result
++        return result
++
+     def voltage_metadata(self):
+         data = {
+             "lot": self.lineEdit_voltage_lot.text().strip(),
+@@ -9608,6 +10664,132 @@
+             raise ValueError("Champs obligatoires manquants : " + ", ".join(missing))
+         return data
+ 
++    def voltage_on_nb_inverseurs_changed(self):
++        """Rafraîchit immédiatement la table et les LED après changement de N."""
++        self.voltage_refresh_results_table()
++        self.voltage_refresh_contact_leds()
++
++    def voltage_refresh_contact_leds(self):
++        """Affiche les 8 états de contact dans l'onglet tension.
++
++        Les inverseurs au-delà du nombre sélectionné restent visibles mais sont
++        volontairement grisés afin de ne pas les confondre avec un état inconnu.
++        """
++        if not hasattr(self, "label_voltage_led_r1"):
++            return
++        nb = int(self.spinBox_voltage_nb_inverseurs.value()) if hasattr(self, "spinBox_voltage_nb_inverseurs") else 0
++        values = list(getattr(self, "contacts_known_values", [None] * 8))
++        while len(values) < 8:
++            values.append(None)
++        labels_r = [self.label_voltage_led_r1, self.label_voltage_led_r2, self.label_voltage_led_r3, self.label_voltage_led_r4]
++        labels_t = [self.label_voltage_led_t1, self.label_voltage_led_t2, self.label_voltage_led_t3, self.label_voltage_led_t4]
++        for index in range(4):
++            inv = index + 1
++            if inv > nb:
++                self.voltage_set_contact_indicator(labels_r[index], f"R{inv}", None, "green", selected=False)
++                self.voltage_set_contact_indicator(labels_t[index], f"T{inv}", None, "red", selected=False)
++                continue
++            self.voltage_set_contact_indicator(labels_r[index], f"R{inv}", values[index], "green")
++            self.voltage_set_contact_indicator(labels_t[index], f"T{inv}", values[4 + index], "red")
++
++    @staticmethod
++    def voltage_set_contact_indicator(label, title, value, color, selected=True):
++        """LED circulaire réelle pour l'état direct des contacts de l'onglet tensions."""
++        # Ne pas utiliser le caractère Unicode « ● » : sa taille visible dépend
++        # de la police et reste beaucoup plus petite que le QLabel. Le fond du
++        # QLabel constitue directement le rond, avec un diamètre réel de 18 px.
++        diameter = 18
++        label.setFixedSize(diameter, diameter)
++        label.setAlignment(Qt.AlignCenter)
++        label.setText("")
++        if not selected:
++            rgb = "165,165,165"
++            border_rgb = "125,125,125"
++            tooltip = f"{title} : inverseur non sélectionné"
++        elif value is None:
++            rgb = "95,95,95"
++            border_rgb = "55,55,55"
++            tooltip = f"{title} : état inconnu"
++        elif str(value) == "1":
++            rgb = "0,205,75" if color == "green" else "225,0,0"
++            border_rgb = "0,125,45" if color == "green" else "145,0,0"
++            tooltip = f"{title} : contact fermé détecté"
++        else:
++            rgb = "25,85,45" if color == "green" else "90,25,25"
++            border_rgb = "15,55,30" if color == "green" else "55,15,15"
++            tooltip = f"{title} : contact ouvert / non détecté"
++        label.setToolTip(tooltip)
++        label.setStyleSheet(
++            f"background-color: rgb({rgb}); "
++            f"border: 1px solid rgb({border_rgb}); "
++            "border-radius: 9px; padding: 0px; margin: 0px;"
++        )
++
++    @staticmethod
++    def voltage_contact_state_text(value):
++        if value is None:
++            return "inconnu"
++        return "fermé" if str(value) == "1" else "ouvert"
++
++    def voltage_timeout_contact_diagnostic(self):
