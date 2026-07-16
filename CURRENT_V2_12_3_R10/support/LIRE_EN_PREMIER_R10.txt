@@ -1,0 +1,10 @@
+NEUTRAL SCREEN V2.12.3 R10 — PACK PROPRE
+
+1. Conserver vos bases SQLite utilisateur existantes.
+2. Depuis la racine du dépôt, lancer dans Git Bash :
+   python CURRENT_V2_12_3_R10/apply_r10.py
+3. Remettre votre fichier privé licence_manager.py à la racine.
+4. Lancer build_exe_onefile_ihm_relais_rp2040_v2_12_3_R10.bat.
+5. Utiliser dist\neutral_screen_v2_12_3_R10.exe.
+
+Les bases portant REFERENCE_VIDE servent uniquement de modèles et ne doivent jamais remplacer les bases utilisateur.
