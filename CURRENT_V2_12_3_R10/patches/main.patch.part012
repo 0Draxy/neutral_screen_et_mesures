@@ -1,0 +1,213 @@
+         self.ea_psu.disconnect()
+-        self.label_voltage_ea_status.setText("EA non connectée")
+-        self.label_voltage_ea_status.setStyleSheet("background-color: rgb(95,95,95); color: white; font-weight: bold; border: 1px solid black;")
++        if stop_confirmed and local_confirmed:
++            self.label_voltage_ea_status.setText("EA non connectée - arrêt confirmé")
++            self.label_voltage_ea_status.setStyleSheet("background-color: rgb(95,95,95); color: white; font-weight: bold; border: 1px solid black;")
++        elif stop_confirmed:
++            self.label_voltage_ea_status.setText("EA non connectée - arrêt confirmé, retour local non confirmé")
++            self.label_voltage_ea_status.setStyleSheet("background-color: rgb(210,145,0); color: black; font-weight: bold; border: 2px solid rgb(130,80,0);")
++        else:
++            self.label_voltage_ea_status.setText("EA déconnectée - ARRÊT NON CONFIRMÉ : couper manuellement")
++            self.label_voltage_ea_status.setStyleSheet("background-color: rgb(190,0,0); color: white; font-weight: bold; border: 2px solid black;")
+         self.voltage_update_button_states()
+ 
+     def voltage_copy_from_chrono(self):
+@@ -9594,6 +10279,377 @@
+         )
+         self.label_voltage_status.setText("Informations et type de relais repris depuis l'onglet Chronométrie contacts.")
+ 
++    def voltage_measure_all_context(self):
++        """Fige l'identification, le type et la tension EA de chronométrie."""
++        meta = self.voltage_metadata()
++        settings = self.voltage_measure_settings_snapshot()
++        return {
++            **meta,
++            "relay_type": self.voltage_relay_type(),
++            "nb_inverseurs": int(self.spinBox_voltage_nb_inverseurs.value()),
++            "chrono_supply_v": float(settings["chrono_supply_v"]),
++        }
++
++    def voltage_apply_measure_all_context_to_chrono(self, context=None):
++        """Recopie le contexte tension vers l'onglet chronométrie sans auto-remplissage parasite."""
++        context = dict(context or self.measure_all_context or self.voltage_measure_all_context())
++        self._chrono_lot_autofill_running = True
++        try:
++            self.lineEdit_chrono_lot.setText(str(context.get("lot", "")))
++            self.lineEdit_chrono_relais.setText(str(context.get("relais", "")))
++            self.lineEdit_chrono_sn.setText(str(context.get("sn", "")))
++            self.lineEdit_chrono_date.setText(str(context.get("date_test", "")) or QDate.currentDate().toString("dd/MM/yyyy"))
++            self.lineEdit_chrono_ambiance.setText(str(context.get("ambiance_c", "")))
++            self.lineEdit_chrono_nom_test.setText(str(context.get("nom_test", "")))
++        finally:
++            self._chrono_lot_autofill_running = False
++        self.comboBox_chrono_type_relais.setCurrentText(
++            "Monostable" if str(context.get("relay_type", "")).upper() == "MONOSTABLE" else "Bistable"
++        )
++        self.spinBox_chrono_nb_inverseurs.setValue(max(1, min(4, int(context.get("nb_inverseurs", 1)))))
++        self.chrono_update_relay_type_ui()
++
++    def voltage_validate_measure_all_chrono_settings(self):
++        """Valide les paramètres chronométrie avant de commencer la phase tension."""
++        pulse_ms = int(self.spinBox_chrono_pulse_ms.value())
++        capture_ms = int(self.spinBox_chrono_capture_ms.value())
++        if capture_ms < pulse_ms:
++            raise ValueError(
++                "Mesure totale impossible : dans l'onglet Chronométrie contacts, "
++                "la fenêtre de capture doit être supérieure ou égale à la durée pulse / maintien."
++            )
++        self.chrono_float_ms(self.lineEdit_chrono_limite_temps_ms, "Sanction temps max")
++        self.chrono_float_ms(self.lineEdit_chrono_limite_rebond_ms, "Sanction rebond max")
++        self.chrono_validate_metadata()
++
++    def voltage_start_measure_all(self):
++        """Lance les tensions puis la chronométrie, alimentées uniquement par l'EA."""
++        if getattr(self, "measure_all_active", False) or self.voltage_test_running or self.chrono_measure_running:
++            QMessageBox.warning(self.window, "Mesurer tout", "Une mesure est déjà en cours.")
++            return
++        try:
++            context = self.voltage_measure_all_context()
++            self.voltage_apply_measure_all_context_to_chrono(context)
++            self.voltage_validate_measure_all_chrono_settings()
++            if not self.is_connected():
++                raise RuntimeError("RP2040 non connecté.")
++            if not self.ea_psu.connected:
++                raise RuntimeError("Alimentation EA non connectée.")
++            if not getattr(self, "rp2040_ea_chrono_capable", False):
++                raise RuntimeError(
++                    "Firmware RP2040 incompatible avec la chronométrie alimentée par l'EA. "
++                    "Téléverser le firmware V2.12.3 R8 contenant EA_CHRONO_NO_GP26."
++                )
++        except Exception as exc:
++            QMessageBox.warning(self.window, "Mesurer tout", str(exc))
++            return
++
++        self.measure_all_active = True
++        self.measure_all_phase = "VOLTAGE"
++        self.measure_all_context = dict(context)
++        self.measure_all_chrono_results = {}
++        self.measure_all_static_confirmation = {}
++        self.chrono_external_supply_mode = False
++        chrono_v = float(context.get("chrono_supply_v", 0.0))
++        self.label_voltage_status.setText(
++            f"MESURE TOTALE 1/2 — cycle tensions EA en cours. Ensuite l'EA sera réglée "
++            f"automatiquement à {chrono_v:.3f} V pour la chronométrie."
++        )
++        self.label_voltage_status.setStyleSheet(
++            "background-color: rgb(0,90,160); color: white; font-weight: bold; border: 2px solid rgb(0,45,90);"
++        )
++        self.update_button_states()
++        self.voltage_start_test("CYCLE")
++        if not self.voltage_test_running and self.measure_all_active:
++            self.voltage_measure_all_fail("Le cycle de tensions n'a pas pu démarrer.")
++
++    @staticmethod
++    def voltage_format_static_confirmation(info):
++        info = dict(info or {})
++        measured = info.get("measured_voltage_v")
++        measured_text = "non relue" if measured is None else f"{float(measured):.3f} V"
++        errors = "; ".join(
++            str(item) for item in info.get("errors", []) if str(item).strip()
++        ) or "confirmation absente"
++        return (
++            f"Cible={float(info.get('target_voltage_v') or 0.0):.3f} V, "
++            f"mesurée={measured_text}, sortie={info.get('output_state') or '--'}, "
++            f"générateur={info.get('generator_selection') or '--'}, "
++            f"SCPI={info.get('scpi_error') or '--'}. Détail : {errors}"
++        )
++
++    def voltage_measure_all_start_chrono(self):
++        """Passe automatiquement l'EA en tension continue puis lance la chronométrie."""
++        if not self.measure_all_active:
++            return
++        self.measure_all_phase = "EA_STATIC_PREP"
++        target_v = float(self.measure_all_context.get(
++            "chrono_supply_v", self.doubleSpinBox_voltage_chrono_v.value()
++        ))
++        current_limit_a = self.voltage_run_setting(
++            "current_limit_a", self.doubleSpinBox_voltage_current_limit
++        )
++        self.label_voltage_status.setText(
++            f"MESURE TOTALE — préparation automatique de l'EA à {target_v:.3f} V "
++            "pour la chronométrie contacts..."
++        )
++        self.label_voltage_status.setStyleSheet(
++            "background-color: rgb(0,90,160); color: white; font-weight: bold; border: 2px solid rgb(0,45,90);"
++        )
++        try:
++            info = self.ea_psu.configure_static_output_and_confirm(target_v, current_limit_a)
++        except Exception as exc:
++            info = {"confirmed": False, "target_voltage_v": target_v, "errors": [str(exc)]}
++        self.measure_all_static_confirmation = dict(info)
++        if not bool(info.get("confirmed")):
++            diagnostic = self.voltage_format_static_confirmation(info)
++            self.voltage_measure_all_fail(
++                "La tension continue de chronométrie n'a pas été confirmée. " + diagnostic
++            )
++            return
++
++        self.chrono_external_supply_mode = True
++        self.measure_all_phase = "CHRONO"
++        self.voltage_apply_measure_all_context_to_chrono(self.measure_all_context)
++        self.measure_all_chrono_results = {}
++        measured_v = float(info.get("measured_voltage_v") or target_v)
++        self.label_voltage_status.setText(
++            f"MESURE TOTALE 2/2 — EA confirmée à {measured_v:.3f} V. "
++            "Chronométrie contacts automatique en cours, source fixe neutral screen isolée."
++        )
++        self.label_voltage_status.setStyleSheet(
++            "background-color: rgb(0,90,160); color: white; font-weight: bold; border: 2px solid rgb(0,45,90);"
++        )
++        started = self.chrono_start_measure_be_br()
++        if started is False or not self.chrono_measure_running:
++            self.voltage_measure_all_fail(
++                "Les tensions ont été sauvegardées, mais la chronométrie EA n'a pas pu démarrer."
++            )
++
++    def voltage_measure_all_finish(self):
++        if not self.measure_all_active or self.measure_all_phase != "CHRONO":
++            return
++        original_sn = str(self.measure_all_context.get("sn", ""))
++        next_sn = self.lineEdit_chrono_sn.text().strip()
++        if next_sn:
++            self.lineEdit_voltage_sn.setText(next_sn)
++        chrono_values = list(self.measure_all_chrono_results.values())
++        chrono_result = "DEFAUT" if any(value != "OK" for value in chrono_values) else "OK"
++        voltage_result = str(getattr(self, "voltage_last_saved_result", "") or "OK")
++        stop_confirmed = self.voltage_stop_ea_and_confirm("fin de MESURER TOUT", show_alert=False)
++        self.chrono_external_supply_mode = False
++        self.measure_all_active = False
++        self.measure_all_phase = ""
++        self.measure_all_context = {}
++        self.measure_all_chrono_results = {}
++        self.update_button_states()
++        message = (
++            f"MESURE TOTALE TERMINÉE — SN {original_sn} : tensions={voltage_result}, "
++            f"chronométrie={chrono_result}, arrêt EA={'confirmé' if stop_confirmed else 'NON CONFIRMÉ'}."
++        )
++        if next_sn and next_sn != original_sn:
++            message += f" SN suivant prêt : {next_sn}."
++        if not stop_confirmed:
++            message += " COUPER MANUELLEMENT L'ALIMENTATION EA."
++        self.label_voltage_status.setText(message)
++        self.label_voltage_status.setStyleSheet(
++            "background-color: rgb(0,150,70); color: white; font-weight: bold; border: 2px solid rgb(0,80,35);"
++            if chrono_result == "OK" and voltage_result == "OK" and stop_confirmed else
++            "background-color: rgb(220,145,0); color: black; font-weight: bold; border: 2px solid rgb(130,80,0);"
++        )
++        if not stop_confirmed:
++            self.big_message_box(
++                "Sécurité alimentation EA",
++                "ARRÊT EA NON CONFIRMÉ",
++                self.voltage_last_stop_diagnostic or message,
++                ok_text="J'AI COUPÉ MANUELLEMENT",
++                icon=QMessageBox.Critical,
++            )
++
++    def voltage_measure_all_fail(self, reason, preserve_status=False):
++        if not getattr(self, "measure_all_active", False):
++            return
++        stop_needed = bool(self.chrono_external_supply_mode or self.measure_all_phase in ("EA_STATIC_PREP", "CHRONO"))
++        stop_confirmed = True
++        if stop_needed and getattr(self, "ea_psu", None) is not None and self.ea_psu.connected:
++            stop_confirmed = self.voltage_stop_ea_and_confirm("interruption de MESURER TOUT", show_alert=False)
