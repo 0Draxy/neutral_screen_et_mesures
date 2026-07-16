@@ -1,0 +1,186 @@
++            self.big_message_box(
++                "Sécurité alimentation EA",
++                "ARRÊT EA NON CONFIRMÉ",
++                message,
++                ok_text="J'AI COUPÉ MANUELLEMENT",
++                icon=QMessageBox.Critical,
++            )
+ 
+-    def voltage_finish_test(self, success, message):
++    def voltage_finish_test(self, success, message, allow_measure_all_continue=False):
+         self.voltage_timeout_timer.stop()
+         self.voltage_phase_timer.stop()
+         self.voltage_arm_timeout_timer.stop()
+         self.voltage_progress_timer.stop()
++        self.voltage_ea_monitor_timer.stop()
+         self.voltage_pending_ramp = None
+         self.voltage_ramp_info = None
+         self.voltage_ramp_started_monotonic = None
+@@ -10238,13 +11543,13 @@
+                 self.voltage_set_coil_hold("OFF")
+         except Exception:
+             pass
+-        try:
+-            if self.ea_psu.connected:
+-                self.ea_psu.stop_generator(leave_mode=True)
+-                self.ea_psu.output(False)
+-                self.ea_psu.send("VOLT 0")
+-        except Exception:
+-            pass
++        stop_confirmed = self.voltage_stop_ea_and_confirm("fin de mesure", show_alert=False)
++        if not stop_confirmed:
++            success = False
++            detail = str(getattr(self, "voltage_last_stop_diagnostic", "") or "").strip()
++            message += " ARRÊT EA NON CONFIRMÉ — COUPER MANUELLEMENT L'ALIMENTATION."
++            if detail:
++                message += "\n\n" + detail
+         self.voltage_test_running = False
+         self.voltage_active_scan = ""
+         saved = False
+@@ -10261,6 +11566,30 @@
+             "background-color: rgb(190,0,0); color: white; font-weight: bold; border: 2px solid black;"
+         )
+         self.voltage_update_button_states()
++        combined_voltage_phase = getattr(self, "measure_all_active", False) and self.measure_all_phase == "VOLTAGE"
++        if combined_voltage_phase:
++            if (success or allow_measure_all_continue) and saved and stop_confirmed:
++                self.measure_all_phase = "CHRONO_PENDING"
++                self.label_voltage_status.setText(
++                    "MESURE TOTALE 1/2 TERMINÉE — tensions sauvegardées. Préparation de la chronométrie contacts..."
++                )
++                self.label_voltage_status.setStyleSheet(
++                    "background-color: rgb(0,90,160); color: white; font-weight: bold; border: 2px solid rgb(0,45,90);"
++                )
++                QTimer.singleShot(400, self.voltage_measure_all_start_chrono)
++            else:
++                self.voltage_measure_all_fail(
++                    "La phase tension n'est pas conforme ou n'a pas été sauvegardée.",
++                    preserve_status=True,
++                )
++        if not stop_confirmed:
++            self.big_message_box(
++                "Sécurité alimentation EA",
++                "ARRÊT EA NON CONFIRMÉ",
++                message,
++                ok_text="J'AI COUPÉ MANUELLEMENT",
++                icon=QMessageBox.Critical,
++            )
+ 
+     def voltage_update_live(self, phase=""):
+         # Pendant une rampe, le timer affiche déjà le temps demandé, le temps écoulé
+@@ -10293,25 +11622,29 @@
+         rp_ok = self.is_connected()
+         ea_ok = bool(getattr(self, "ea_psu", None) and self.ea_psu.connected)
+         running = bool(getattr(self, "voltage_test_running", False))
++        measure_all_busy = bool(getattr(self, "measure_all_active", False))
++        chrono_running = bool(getattr(self, "chrono_measure_running", False))
++        busy = running or measure_all_busy or chrono_running
+         calibration_ok = bool(getattr(self, "active_voltage_calibration", None))
+-        enabled = rp_ok and ea_ok and calibration_ok and not running and not getattr(self, "chrono_measure_running", False) and not getattr(self, "auto_neutral_running", False)
++        enabled = rp_ok and ea_ok and calibration_ok and not busy and not getattr(self, "auto_neutral_running", False)
+         self.pushButton_voltage_pickup.setEnabled(enabled)
+         self.pushButton_voltage_dropout.setEnabled(enabled)
+         self.pushButton_voltage_cycle.setEnabled(enabled)
+-        self.pushButton_voltage_stop.setEnabled(running)
+-        self.pushButton_voltage_ea_connect.setEnabled(not ea_ok and not running)
+-        self.pushButton_voltage_ea_disconnect.setEnabled(ea_ok and not running)
+-        self.pushButton_voltage_ea_refresh.setEnabled(not running)
++        self.pushButton_voltage_measure_all.setEnabled(enabled)
++        self.pushButton_voltage_stop.setEnabled(running or measure_all_busy)
++        self.pushButton_voltage_ea_connect.setEnabled(not ea_ok and not busy)
++        self.pushButton_voltage_ea_disconnect.setEnabled(ea_ok and not busy)
++        self.pushButton_voltage_ea_refresh.setEnabled(not busy)
+         for widget in (
+             self.doubleSpinBox_voltage_vmax, self.doubleSpinBox_voltage_ramp_up_s,
+             self.doubleSpinBox_voltage_ramp_down_s, self.doubleSpinBox_voltage_current_limit,
+-            self.doubleSpinBox_voltage_interphase_s,
++            self.doubleSpinBox_voltage_chrono_v, self.doubleSpinBox_voltage_interphase_s,
+             self.spinBox_voltage_nb_inverseurs, self.spinBox_voltage_stable_ms,
+             self.comboBox_voltage_relay_type,
+         ):
+-            widget.setEnabled(not running)
+-        self.pushButton_voltage_export_xlsx.setEnabled(not running)
+-        self.pushButton_voltage_export_pdf.setEnabled(not running)
++            widget.setEnabled(not busy)
++        self.pushButton_voltage_export_xlsx.setEnabled(not busy)
++        self.pushButton_voltage_export_pdf.setEnabled(not busy)
+ 
+     def voltage_init_db(self):
+         self.chrono_init_db()
+@@ -10334,6 +11667,7 @@
+                     interphase_s REAL NOT NULL DEFAULT 0,
+                     interphase_actual_s REAL,
+                     current_limit_a REAL NOT NULL DEFAULT 0,
++                    chrono_supply_v REAL NOT NULL DEFAULT 0,
+                     stable_ms INTEGER NOT NULL DEFAULT 0,
+                     capture_policy TEXT NOT NULL DEFAULT 'FIRST_PASSAGE',
+                     validation_policy TEXT NOT NULL DEFAULT 'STABLE_AFTER_CAPTURE',
+@@ -10357,6 +11691,18 @@
+                     pickup_time_json TEXT NOT NULL DEFAULT '{}',
+                     dropout_time_json TEXT NOT NULL DEFAULT '{}',
+                     ea_readback_json TEXT NOT NULL DEFAULT '{}',
++                    pickup_plausibility_status TEXT NOT NULL DEFAULT '',
++                    dropout_plausibility_status TEXT NOT NULL DEFAULT '',
++                    pickup_expected_elapsed_s REAL,
++                    dropout_expected_elapsed_s REAL,
++                    pickup_elapsed_error_s REAL,
++                    dropout_elapsed_error_s REAL,
++                    plausibility_json TEXT NOT NULL DEFAULT '{}',
++                    ea_stop_confirmed INTEGER NOT NULL DEFAULT -1,
++                    ea_final_output_state TEXT NOT NULL DEFAULT '',
++                    ea_final_voltage_v REAL,
++                    ea_final_generator_state TEXT NOT NULL DEFAULT '',
++                    ea_stop_detail TEXT NOT NULL DEFAULT '',
+                     resultat TEXT NOT NULL DEFAULT '',
+                     timestamp TEXT NOT NULL DEFAULT ''
+                 )
+@@ -10374,6 +11720,7 @@
+                 "dropout_raw_json": "ALTER TABLE mesures_tension_fonctionnement ADD COLUMN dropout_raw_json TEXT NOT NULL DEFAULT '{}'",
+                 "interphase_s": "ALTER TABLE mesures_tension_fonctionnement ADD COLUMN interphase_s REAL NOT NULL DEFAULT 0",
+                 "interphase_actual_s": "ALTER TABLE mesures_tension_fonctionnement ADD COLUMN interphase_actual_s REAL",
++                "chrono_supply_v": "ALTER TABLE mesures_tension_fonctionnement ADD COLUMN chrono_supply_v REAL NOT NULL DEFAULT 0",
+                 "pickup_elapsed_s": "ALTER TABLE mesures_tension_fonctionnement ADD COLUMN pickup_elapsed_s REAL",
+                 "dropout_elapsed_s": "ALTER TABLE mesures_tension_fonctionnement ADD COLUMN dropout_elapsed_s REAL",
+                 "pickup_effective_ramp_s": "ALTER TABLE mesures_tension_fonctionnement ADD COLUMN pickup_effective_ramp_s REAL",
+@@ -10383,6 +11730,18 @@
+                 "ea_readback_json": "ALTER TABLE mesures_tension_fonctionnement ADD COLUMN ea_readback_json TEXT NOT NULL DEFAULT '{}'",
+                 "capture_policy": "ALTER TABLE mesures_tension_fonctionnement ADD COLUMN capture_policy TEXT NOT NULL DEFAULT 'FIRST_PASSAGE'",
+                 "validation_policy": "ALTER TABLE mesures_tension_fonctionnement ADD COLUMN validation_policy TEXT NOT NULL DEFAULT 'STABLE_AFTER_CAPTURE'",
++                "pickup_plausibility_status": "ALTER TABLE mesures_tension_fonctionnement ADD COLUMN pickup_plausibility_status TEXT NOT NULL DEFAULT ''",
++                "dropout_plausibility_status": "ALTER TABLE mesures_tension_fonctionnement ADD COLUMN dropout_plausibility_status TEXT NOT NULL DEFAULT ''",
++                "pickup_expected_elapsed_s": "ALTER TABLE mesures_tension_fonctionnement ADD COLUMN pickup_expected_elapsed_s REAL",
++                "dropout_expected_elapsed_s": "ALTER TABLE mesures_tension_fonctionnement ADD COLUMN dropout_expected_elapsed_s REAL",
++                "pickup_elapsed_error_s": "ALTER TABLE mesures_tension_fonctionnement ADD COLUMN pickup_elapsed_error_s REAL",
++                "dropout_elapsed_error_s": "ALTER TABLE mesures_tension_fonctionnement ADD COLUMN dropout_elapsed_error_s REAL",
++                "plausibility_json": "ALTER TABLE mesures_tension_fonctionnement ADD COLUMN plausibility_json TEXT NOT NULL DEFAULT '{}'",
++                "ea_stop_confirmed": "ALTER TABLE mesures_tension_fonctionnement ADD COLUMN ea_stop_confirmed INTEGER NOT NULL DEFAULT -1",
++                "ea_final_output_state": "ALTER TABLE mesures_tension_fonctionnement ADD COLUMN ea_final_output_state TEXT NOT NULL DEFAULT ''",
++                "ea_final_voltage_v": "ALTER TABLE mesures_tension_fonctionnement ADD COLUMN ea_final_voltage_v REAL",
++                "ea_final_generator_state": "ALTER TABLE mesures_tension_fonctionnement ADD COLUMN ea_final_generator_state TEXT NOT NULL DEFAULT ''",
++                "ea_stop_detail": "ALTER TABLE mesures_tension_fonctionnement ADD COLUMN ea_stop_detail TEXT NOT NULL DEFAULT ''",
+             }
+             for name, statement in migrations.items():
+                 if name not in columns:
+@@ -10400,63 +11759,99 @@
+         dropout_global = dropout.get("GLOBAL")
+         pickup_elapsed_s = None if pickup_times.get("GLOBAL") is None else pickup_times["GLOBAL"] / 1_000_000.0
+         dropout_elapsed_s = None if dropout_times.get("GLOBAL") is None else dropout_times["GLOBAL"] / 1_000_000.0
+-        result = "OK" if (pickup_global is not None or dropout_global is not None) else "INCOMPLET"
++        pickup_pl = dict(self.voltage_plausibility.get("PICKUP", {}))
++        dropout_pl = dict(self.voltage_plausibility.get("DROPOUT", {}))
++        stop = dict(self.voltage_ea_stop_confirmation or {})
++        stop_errors = "; ".join(str(item) for item in stop.get("errors", []) if str(item).strip())
++        stop_detail = f"{str(stop.get('context', '') or 'arrêt')}: {stop_errors or 'confirmation obtenue'}"
++        result = str(self.voltage_result_override or "").strip()
++        if not result:
++            statuses = {str(pickup_pl.get("status", "")), str(dropout_pl.get("status", ""))}
++            if "INCOHERENT" in statuses:
++                result = "INCOHERENT"
++            elif "NON_VERIFIE" in statuses:
++                result = "NON_VERIFIE"
++            else:
++                result = "OK" if (pickup_global is not None or dropout_global is not None) else "INCOMPLET"
++        self.voltage_last_saved_result = result
+         cal = self.active_voltage_calibration or {}
++
++        record = {
