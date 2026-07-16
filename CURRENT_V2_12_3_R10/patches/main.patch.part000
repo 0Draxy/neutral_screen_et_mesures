@@ -1,0 +1,276 @@
+--- main_ihm_relais_rp2040_v2_12_2.py
++++ main_ihm_relais_rp2040_v2_12_3.py
+@@ -18,7 +18,7 @@
+ import serial.tools.list_ports
+ 
+ from PySide6.QtCore import QThread, Signal, QTimer, QFile, Qt, QDate, QObject, QEvent, QLineF
+-from PySide6.QtGui import QColor, QFont, QKeySequence, QPageSize, QPainter, QPdfWriter, QPen, QShortcut
++from PySide6.QtGui import QColor, QFont, QKeySequence, QPageLayout, QPageSize, QPainter, QPdfWriter, QPen, QShortcut
+ from PySide6.QtWidgets import QApplication, QMessageBox, QWidget, QPushButton, QComboBox, QLineEdit, QLabel, QTextEdit, QTableWidget, QTableWidgetItem, QFileDialog, QSpinBox, QHeaderView, QCheckBox, QTabWidget, QDateEdit, QInputDialog, QDialog, QVBoxLayout, QHBoxLayout, QGridLayout, QGroupBox, QToolTip, QDoubleSpinBox
+ from PySide6.QtUiTools import QUiLoader
+ 
+@@ -34,7 +34,7 @@
+ 
+ 
+ EXPORT_DIR = runtime_output_dir()
+-UI_FILE = APP_DIR / "ihm_relais_rp2040_28vdc_precision_v2_12_2.ui"
++UI_FILE = APP_DIR / "ihm_relais_rp2040_28vdc_precision_v2_12_3.ui"
+ 
+ UINT32_MAX_MS = 4_294_967_295
+ MAX_US_TOTAL = UINT32_MAX_MS * 1000
+@@ -44,6 +44,18 @@
+ CHRONO_SPREAD_INFO_US = 50
+ CHRONO_LOOP_WARN_US = 200
+ CHRONO_TRANSFER_LIMIT_MS = 1.0
++EA_STOP_CONFIRM_MAX_V = 0.200
++EA_STOP_CONFIRM_SETTLE_S = 0.100
++EA_STOP_CONFIRM_ATTEMPTS = 2
++EA_STOP_CONFIRM_QUERY_TIMEOUT_S = 0.350
++EA_STOP_CONFIRM_TIMEOUT_S = 5.000
++EA_STOP_CONFIRM_POLL_INTERVAL_S = 0.150
++EA_STATIC_CONFIRM_TIMEOUT_S = 3.000
++EA_STATIC_CONFIRM_POLL_INTERVAL_S = 0.150
++EA_STATIC_CONFIRM_MIN_TOL_V = 0.150
++EA_STATIC_CONFIRM_REL_TOL = 0.010
++VOLTAGE_PLAUSIBILITY_MIN_TOL_S = 0.750
++VOLTAGE_PLAUSIBILITY_REL_TOL = 0.100
+ CHRONO_CONTACT_NAMES = ["R1", "R2", "R3", "R4", "T1", "T2", "T3", "T4"]
+ OSCILLO_COMBINED_GAP_US = 2000
+ OSCILLO_DISPLAY_ELECTRIC = "ELECTRIC"
+@@ -282,6 +294,13 @@
+         self.send(command)
+         return self.ser.readline().decode("ascii", errors="replace").strip()
+ 
++    def query_required(self, command, name="réponse"):
++        response = self.query(command)
++        text = str(response or "").strip()
++        if not text:
++            raise RuntimeError(f"Aucune réponse EA pour {name} ({command}).")
++        return text
++
+     @classmethod
+     def parse_number(cls, response, name="valeur"):
+         match = cls._NUMBER_RE.search(str(response or ""))
+@@ -320,19 +339,16 @@
+                 pass
+ 
+     def read_scpi_error(self):
+-        """Retourne la file d'erreur SCPI. Une réponse vide reste tolérée pour compatibilité."""
+-        try:
+-            response = self.query("SYST:ERR?")
+-        except Exception:
+-            return ""
+-        self.last_scpi_error = str(response or "").strip()
++        """Retourne la file d'erreur SCPI. Une réponse vide ou un timeout est une erreur."""
++        response = self.query_required("SYST:ERR?", "file d'erreurs SCPI")
++        self.last_scpi_error = str(response).strip()
+         return self.last_scpi_error
+ 
+     @staticmethod
+     def scpi_error_is_clear(response):
+         text = str(response or "").strip()
+         if not text:
+-            return True
++            return False
+         match = re.match(r"\s*([-+]?\d+)", text)
+         return bool(match and int(match.group(1)) == 0)
+ 
+@@ -435,11 +451,424 @@
+         self.send("OUTP ON")
+         self.send("FUNC:GEN:WAVE:STAT RUN")
+ 
++    @staticmethod
++    def _state_tokens(response):
++        text = str(response or "").strip().upper()
++        return text, [token for token in re.split(r"[^A-Z0-9.+-]+", text) if token]
++
++    @classmethod
++    def generator_state_is_running(cls, response):
++        text, tokens = cls._state_tokens(response)
++        if text == "ON" or any(token.startswith("RUN") for token in tokens):
++            return True
++        try:
++            return cls.parse_number(text, "état générateur") >= 0.5
++        except Exception:
++            return False
++
++    @classmethod
++    def generator_state_is_stopped(cls, response):
++        text, tokens = cls._state_tokens(response)
++        if text == "OFF" or any(token.startswith(("STOP", "IDLE")) for token in tokens):
++            return True
++        try:
++            return cls.parse_number(text, "état générateur") < 0.5
++        except Exception:
++            return False
++
++    @classmethod
++    def output_state_is_off(cls, response):
++        text, tokens = cls._state_tokens(response)
++        if text in ("0", "OFF", "FALSE") or "OFF" in tokens:
++            return True
++        try:
++            return abs(cls.parse_number(text, "état sortie")) < 0.5
++        except Exception:
++            return False
++
++    @classmethod
++    def output_state_is_on(cls, response):
++        text, tokens = cls._state_tokens(response)
++        if text in ("1", "ON", "TRUE") or "ON" in tokens:
++            return True
++        try:
++            return abs(cls.parse_number(text, "état sortie")) >= 0.5
++        except Exception:
++            return False
++
++    def configure_static_output_and_confirm(
++        self,
++        target_voltage_v,
++        current_limit_a,
++        timeout_s=EA_STATIC_CONFIRM_TIMEOUT_S,
++        poll_interval_s=EA_STATIC_CONFIRM_POLL_INTERVAL_S,
++    ):
++        """Prépare l'EA en source continue et confirme la tension avant chronométrie.
++
++        Le générateur arbitraire est quitté, la sortie est réglée en mode statique,
++        puis SEL=NONE, OUTP=ON, MEAS:VOLT et SYST:ERR? sont contrôlés. Une réponse
++        vide ou un timeout reste une erreur fermée.
++        """
++        target_voltage_v = float(target_voltage_v)
++        current_limit_a = float(current_limit_a)
++        if not (0.0 < target_voltage_v <= self.NOMINAL_VOLTAGE_V):
++            raise ValueError(
++                f"Tension chronométrie hors plage : {target_voltage_v:.3f} V."
++            )
++        if current_limit_a <= 0.0:
++            raise ValueError("La limite de courant chronométrie doit être supérieure à 0 A.")
++        if not self.connected or self.ser is None or not self.ser.is_open:
++            raise RuntimeError("Alimentation EA non connectée.")
++
++        tolerance_v = max(
++            EA_STATIC_CONFIRM_MIN_TOL_V,
++            abs(target_voltage_v) * EA_STATIC_CONFIRM_REL_TOL,
++        )
++        result = {
++            "confirmed": False,
++            "target_voltage_v": target_voltage_v,
++            "tolerance_v": tolerance_v,
++            "generator_selection": "",
++            "output_state": "",
++            "measured_voltage_v": None,
++            "scpi_error": "",
++            "preexisting_scpi_errors": [],
++            "errors": [],
++            "poll_count": 0,
++            "confirmation_elapsed_s": 0.0,
++        }
++        started = time.monotonic()
++        deadline = started + max(0.25, float(timeout_s))
++        old_timeout = getattr(self.ser, "timeout", None)
++        timeout_changed = False
++        try:
++            if old_timeout is not None:
++                self.ser.timeout = min(float(old_timeout), EA_STOP_CONFIRM_QUERY_TIMEOUT_S)
++                timeout_changed = True
++        except Exception:
++            timeout_changed = False
++
++        try:
++            self.set_remote()
++            previous = self.drain_scpi_errors()
++            if previous:
++                result["preexisting_scpi_errors"] = list(previous)
++            selection = self.generator_selection()
++            if self.generator_selection_is_arbitrary(selection):
++                self.send("FUNC:GEN:WAVE:STAT STOP")
++            self.send("FUNC:GEN:SEL NONE")
++            self.send(f"CURR {current_limit_a:.6f}")
++            self.send("POW MAX")
++            self.send(f"VOLT {target_voltage_v:.6f}")
++            self.send("OUTP ON")
++
++            last_errors = []
++            while time.monotonic() <= deadline:
++                result["poll_count"] += 1
++                poll_errors = []
++                try:
++                    result["generator_selection"] = self.generator_selection()
++                except Exception as exc:
++                    poll_errors.append(f"sélection générateur: {exc}")
++                try:
++                    result["output_state"] = self.output_state()
++                except Exception as exc:
++                    poll_errors.append(f"état sortie: {exc}")
++                try:
++                    result["measured_voltage_v"] = float(self.measured_voltage())
++                except Exception as exc:
++                    poll_errors.append(f"tension sortie: {exc}")
++
++                selection_ok = self.generator_selection_is_none(result["generator_selection"])
++                output_ok = self.output_state_is_on(result["output_state"])
++                measured = result["measured_voltage_v"]
++                voltage_ok = (
++                    measured is not None
++                    and abs(float(measured) - target_voltage_v) <= tolerance_v
++                )
++                if selection_ok and output_ok and voltage_ok and not poll_errors:
++                    try:
++                        result["scpi_error"] = self.read_scpi_error()
++                    except Exception as exc:
++                        poll_errors.append(f"file SCPI: {exc}")
++                    if self.scpi_error_is_clear(result["scpi_error"]) and not poll_errors:
++                        result["confirmed"] = True
++                        result["confirmation_elapsed_s"] = time.monotonic() - started
++                        return result
++                    if not self.scpi_error_is_clear(result["scpi_error"]):
++                        poll_errors.append(
++                            f"file SCPI non claire: {result['scpi_error'] or 'réponse vide'}"
++                        )
++                        last_errors = poll_errors
++                        break
++                last_errors = poll_errors
++                remaining = max(0.0, deadline - time.monotonic())
++                if remaining <= 0:
++                    break
++                time.sleep(min(max(0.01, float(poll_interval_s)), remaining))
++
++            selection_ok = self.generator_selection_is_none(result["generator_selection"])
++            output_ok = self.output_state_is_on(result["output_state"])
++            measured = result["measured_voltage_v"]
++            voltage_ok = (
++                measured is not None
++                and abs(float(measured) - target_voltage_v) <= tolerance_v
++            )
++            validation_errors = list(last_errors)
++            if not selection_ok:
++                validation_errors.append(
++                    f"mode générateur non statique: {result['generator_selection'] or 'réponse vide'}"
++                )
++            if not output_ok:
++                validation_errors.append(
++                    f"sortie EA non active: {result['output_state'] or 'réponse vide'}"
++                )
++            if not voltage_ok:
++                measured_text = "non relue" if measured is None else f"{float(measured):.3f} V"
++                validation_errors.append(
++                    f"tension statique {measured_text}, cible {target_voltage_v:.3f} V "
++                    f"± {tolerance_v:.3f} V"
++                )
++            if not result["scpi_error"]:
++                try:
++                    result["scpi_error"] = self.read_scpi_error()
++                except Exception as exc:
++                    validation_errors.append(f"file SCPI finale: {exc}")
++            if not self.scpi_error_is_clear(result["scpi_error"]):
++                validation_errors.append(
++                    f"file SCPI non claire: {result['scpi_error'] or 'réponse vide'}"
++                )
++            result["errors"] = validation_errors
++            result["confirmation_elapsed_s"] = time.monotonic() - started
++            return result
++        except Exception as exc:
++            result["errors"] = list(result.get("errors", [])) + [str(exc)]
++            result["confirmation_elapsed_s"] = time.monotonic() - started
++            return result
++        finally:
