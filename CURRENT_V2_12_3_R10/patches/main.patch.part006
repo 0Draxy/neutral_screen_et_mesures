@@ -1,0 +1,198 @@
++        """Compatibilité historique : renvoie la première feuille uniquement."""
++        summary_cards, _detail_cards = self.chrono_export_measure_sheets(records, voltage_records)
++        return summary_cards
++
++    def chrono_export_voltage_value(self, value):
++        if value is None or value == "":
++            return "--"
++        try:
++            return f"{float(value):.3f}"
++        except Exception:
++            return str(value)
++
++    def chrono_export_voltage_rows(self, record):
++        pickup = self.chrono_json_dict(record["pickup_json"])
++        dropout = self.chrono_json_dict(record["dropout_json"])
++        rows = [
++            ["MESURES DE TENSION", "", ""],
++            ["Horodatage tension", "", self.format_datetime_fr(record["timestamp"]) or record["timestamp"]],
++            ["Résultat tensions", "", record["resultat"]],
++            ["Tension collage / BE globale (V)", record["pickup_plausibility_status"], self.chrono_export_voltage_value(record["pickup_global_v"])],
++            ["Tension décollage / BR globale (V)", record["dropout_plausibility_status"], self.chrono_export_voltage_value(record["dropout_global_v"])],
++        ]
++        nb = max(1, min(4, int(record["nb_inverseurs"] or 1)))
++        for inv in range(1, nb + 1):
++            p = pickup.get(str(inv), pickup.get(inv))
++            d = dropout.get(str(inv), dropout.get(inv))
++            rows.append([f"Tension collage / BE inverseur {inv} (V)", "", self.chrono_export_voltage_value(p)])
++            rows.append([f"Tension décollage / BR inverseur {inv} (V)", "", self.chrono_export_voltage_value(d)])
++        stop = int(record["ea_stop_confirmed"] if record["ea_stop_confirmed"] is not None else -1)
++        stop_label = "OUI" if stop == 1 else "NON" if stop == 0 else "NON VÉRIFIÉ"
++        rows.extend([
++            ["Étalonnage utilisé", "", record["calibration_id"] if record["calibration_id"] is not None else "--"],
++            ["Erreur contrôle étalonnage (V)", "", self.chrono_export_voltage_value(record["calibration_error_v"])],
++            ["Arrêt EA confirmé", "", stop_label],
++            ["Tension EA finale (V)", "", self.chrono_export_voltage_value(record["ea_final_voltage_v"])],
++        ])
++        return rows
+ 
+     def chrono_export_headers(self):
+         return [
+@@ -3346,25 +3979,21 @@
+             return
+         try:
+             records = self.chrono_records_for_lot(lot)
++            voltage_records = self.voltage_records_for_lot(lot)
+         except Exception as exc:
+             QMessageBox.warning(self.window, "Export XLSX lot", f"Lecture base impossible : {exc}")
+             return
+-        if not records:
+-            QMessageBox.information(self.window, "Export XLSX lot", f"Aucune mesure chronométrie enregistrée pour le lot {lot}.")
++        if not records and not voltage_records:
++            QMessageBox.information(self.window, "Export XLSX lot", f"Aucune mesure chronométrie ou tension enregistrée pour le lot {lot}.")
+             return
+-        default_name = f"chronometrie_lot_{self.filename_safe(lot)}.xlsx"
+-        path = self.ask_export_path(
+-            "Exporter le lot mesures en XLSX",
+-            default_name,
+-            "Excel (*.xlsx)",
+-            ".xlsx",
+-        )
++        default_name = f"chronometrie_et_tensions_lot_{self.filename_safe(lot)}.xlsx"
++        path = self.ask_export_path("Exporter chronométrie et tensions en XLSX", default_name, "Excel (*.xlsx)", ".xlsx")
+         if not path:
+             return
+         try:
+-            cards = self.chrono_export_measure_cards(records)
+-            self.write_chrono_lot_xlsx(path, lot, cards)
+-            self.label_chrono_status.setText(f"Export XLSX lot créé : {Path(path).name}")
++            summary_cards, detail_cards = self.chrono_export_measure_sheets(records, voltage_records)
++            self.write_chrono_lot_xlsx(path, lot, summary_cards, detail_cards)
++            self.label_chrono_status.setText(f"Export XLSX chronométrie + tensions créé : {Path(path).name}")
+             QMessageBox.information(self.window, "Export XLSX lot", f"Export XLSX créé :\n{path}")
+         except Exception as exc:
+             QMessageBox.warning(self.window, "Export XLSX lot", f"Export impossible : {exc}")
+@@ -3375,25 +4004,21 @@
+             return
+         try:
+             records = self.chrono_records_for_lot(lot)
++            voltage_records = self.voltage_records_for_lot(lot)
+         except Exception as exc:
+             QMessageBox.warning(self.window, "Export PDF lot", f"Lecture base impossible : {exc}")
+             return
+-        if not records:
+-            QMessageBox.information(self.window, "Export PDF lot", f"Aucune mesure chronométrie enregistrée pour le lot {lot}.")
++        if not records and not voltage_records:
++            QMessageBox.information(self.window, "Export PDF lot", f"Aucune mesure chronométrie ou tension enregistrée pour le lot {lot}.")
+             return
+-        default_name = f"chronometrie_lot_{self.filename_safe(lot)}.pdf"
+-        path = self.ask_export_path(
+-            "Exporter le lot mesures en PDF",
+-            default_name,
+-            "PDF (*.pdf)",
+-            ".pdf",
+-        )
++        default_name = f"chronometrie_et_tensions_lot_{self.filename_safe(lot)}.pdf"
++        path = self.ask_export_path("Exporter chronométrie et tensions en PDF", default_name, "PDF (*.pdf)", ".pdf")
+         if not path:
+             return
+         try:
+-            cards = self.chrono_export_measure_cards(records)
+-            self.write_chrono_lot_pdf(path, lot, records, cards)
+-            self.label_chrono_status.setText(f"Export PDF lot créé : {Path(path).name}")
++            summary_cards, detail_cards = self.chrono_export_measure_sheets(records, voltage_records)
++            self.write_chrono_lot_pdf(path, lot, records, summary_cards, detail_cards, voltage_records)
++            self.label_chrono_status.setText(f"Export PDF chronométrie + tensions créé : {Path(path).name}")
+             QMessageBox.information(self.window, "Export PDF lot", f"Rapport PDF créé :\n{path}")
+         except Exception as exc:
+             QMessageBox.warning(self.window, "Export PDF lot", f"Création PDF impossible : {exc}")
+@@ -3415,116 +4040,68 @@
+             name = chr(65 + rem) + name
+         return name
+ 
+-    def write_chrono_lot_xlsx(self, path, lot, cards):
+-        rows = []
+-        for card in cards:
+-            if rows:
+-                rows.append(["", "", ""])
+-            rows.extend(card)
+-        if not rows:
+-            rows = [["Lot", "", lot]]
+-        sheet_rows = []
+-        for r_idx, row in enumerate(rows, start=1):
+-            cells = []
+-            for c_idx, value in enumerate(row):
+-                cell_ref = f"{self.xlsx_col_name(c_idx)}{r_idx}"
+-                if r_idx > 1 and isinstance(value, (int, float)) and value is not None:
+-                    cells.append(f'<c r="{cell_ref}" s="1"><v>{value}</v></c>')
+-                else:
+-                    cells.append(
+-                        f'<c r="{cell_ref}" t="inlineStr" s="1">'
+-                        f'<is><t>{self.xlsx_xml_escape(value)}</t></is></c>'
+-                    )
+-            sheet_rows.append(f'<row r="{r_idx}">{"".join(cells)}</row>')
+-        last_col = "C"
+-        col_widths = [42, 16, 18]
+-        cols_xml = "".join(
+-            f'<col min="{idx}" max="{idx}" width="{width}" customWidth="1"/>'
+-            for idx, width in enumerate(col_widths, start=1)
+-        )
+-        sheet_xml = (
+-            '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+-            '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" '
+-            'xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">'
+-            f'<dimension ref="A1:{last_col}{len(rows)}"/>'
+-            '<sheetViews><sheetView workbookViewId="0"/></sheetViews>'
+-            f'<cols>{cols_xml}</cols>'
+-            f'<sheetData>{"".join(sheet_rows)}</sheetData>'
+-            '</worksheet>'
+-        )
+-        now = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+-        files = {
+-            "[Content_Types].xml": (
+-                '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+-                '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">'
+-                '<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>'
+-                '<Default Extension="xml" ContentType="application/xml"/>'
+-                '<Override PartName="/docProps/app.xml" ContentType="application/vnd.openxmlformats-officedocument.extended-properties+xml"/>'
+-                '<Override PartName="/docProps/core.xml" ContentType="application/vnd.openxmlformats-package.core-properties+xml"/>'
+-                '<Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>'
+-                '<Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>'
+-                '<Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/>'
+-                '</Types>'
+-            ),
+-            "_rels/.rels": (
+-                '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+-                '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
+-                '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/>'
+-                '<Relationship Id="rId2" Type="http://schemas.openxmlformats.org/package/2006/relationships/metadata/core-properties" Target="docProps/core.xml"/>'
+-                '<Relationship Id="rId3" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/extended-properties" Target="docProps/app.xml"/>'
+-                '</Relationships>'
+-            ),
+-            "docProps/app.xml": (
+-                '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+-                '<Properties xmlns="http://schemas.openxmlformats.org/officeDocument/2006/extended-properties" '
+-                'xmlns:vt="http://schemas.openxmlformats.org/officeDocument/2006/docPropsVTypes">'
+-                '<Application>Neutral Screen RP2040</Application></Properties>'
+-            ),
+-            "docProps/core.xml": (
+-                '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+-                '<cp:coreProperties xmlns:cp="http://schemas.openxmlformats.org/package/2006/metadata/core-properties" '
+-                'xmlns:dc="http://purl.org/dc/elements/1.1/" '
+-                'xmlns:dcterms="http://purl.org/dc/terms/" '
+-                'xmlns:dcmitype="http://purl.org/dc/dcmitype/" '
+-                'xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">'
+-                f'<dc:title>Chronometrie lot {self.xlsx_xml_escape(lot)}</dc:title>'
+-                '<dc:creator>Neutral Screen RP2040</dc:creator>'
+-                f'<dcterms:created xsi:type="dcterms:W3CDTF">{now}</dcterms:created>'
+-                f'<dcterms:modified xsi:type="dcterms:W3CDTF">{now}</dcterms:modified>'
+-                '</cp:coreProperties>'
+-            ),
+-            "xl/workbook.xml": (
+-                '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+-                '<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" '
+-                'xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">'
+-                '<sheets><sheet name="Mesures lot" sheetId="1" r:id="rId1"/></sheets></workbook>'
+-            ),
+-            "xl/_rels/workbook.xml.rels": (
+-                '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
