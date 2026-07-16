@@ -1,0 +1,151 @@
+             "pushButton_prod_search_clear": "Efface le filtre de recherche lot et réaffiche l'ensemble des lots conservés dans la base.",
+             "pushButton_rafraichir_ports_2": "Recherche à nouveau les ports COM disponibles pour retrouver le RP2040 si le câble USB vient d'être branché.",
+@@ -1816,7 +2280,6 @@
+             "pushButton_auto_scenario_recharger": "Recharge le fichier neutral_scenarios.json depuis le disque pour prendre en compte les scénarios modifiés.",
+             "pushButton_auto_scenario_editer": "Ouvre l'onglet Editeur Scénario Neutral après déverrouillage, afin de modifier les scénarios de test.",
+             "pushButton_auto_lot_fini": "Clôture obligatoirement le lot en cours. Tant que ce bouton n'est pas validé, l'opérateur ne peut pas préparer un autre lot.",
+-            "pushButton_auto_fin_essai": "Valide la fin du test affiché. Le résultat du relais a déjà été enregistré ; ce bouton prépare le relais suivant.",
+             "pushButton_neutral_be": "Mode manuel : envoie un pulse BE sur la sortie 1. À utiliser uniquement pour un contrôle manuel maîtrisé.",
+             "pushButton_neutral_br": "Mode manuel : envoie un pulse BR sur la sortie 2. À utiliser uniquement pour un contrôle manuel maîtrisé.",
+             "pushButton_neutral_bebr": "Mode manuel : envoie un pulse simultané BE/BR. C'est l'action manuelle correspondant à la recherche de position Neutral Screen.",
+@@ -1838,8 +2301,8 @@
+             "pushButton_db_restore": "Remplace la base active par une sauvegarde SQLite sélectionnée, avec sauvegarde de sécurité avant remplacement.",
+             "pushButton_db_export_csv": "Exporte tous les essais enregistrés dans un fichier CSV lisible avec un tableur.",
+             "pushButton_db_vacuum": "Optimise la base SQLite : nettoyage du journal, compactage du fichier et analyse des index.",
+-            "pushButton_db_export_xlsx": "Exporte en XLSX le contenu de la base actuellement sélectionnée : Production ou Chronométrie contacts.",
+-            "pushButton_db_export_pdf": "Exporte en PDF le contenu de la base actuellement sélectionnée : Production ou Chronométrie contacts.",
++            "pushButton_db_export_xlsx": "Exporte en XLSX le contenu de la base actuellement sélectionnée : Production ou Chronométrie contacts + tensions.",
++            "pushButton_db_export_pdf": "Exporte en PDF le contenu de la base actuellement sélectionnée : Production ou Chronométrie contacts + tensions.",
+             "pushButton_db_recreate_default": "Crée une base SQLite neuve et vide. Une sauvegarde de l'ancien fichier est faite si possible avant remplacement.",
+             "pushButton_db_merge": "Importe les essais et opérateurs manquants depuis une autre base SQLite sans écraser la base active.",
+             "pushButton_db_operator_add": "Ajoute l'opérateur saisi à la liste proposée dans l'onglet Production.",
+@@ -1848,9 +2311,10 @@
+             "pushButton_db_lot_pdf": "Crée le PDF du lot sélectionné depuis la base actuellement sélectionnée.",
+             "pushButton_db_lot_xlsx": "Crée le XLSX du lot sélectionné depuis la base actuellement sélectionnée.",
+             "pushButton_db_lot_delete": "Supprime définitivement le lot sélectionné et tous les relais associés après confirmation. Une sauvegarde de sécurité est faite avant suppression.",
+-            "pushButton_chrono_export_xlsx_lot": "Exporte en XLSX toutes les mesures chronométrie enregistrées pour le lot saisi dans l'onglet Mesures.",
+-            "pushButton_chrono_export_pdf_lot": "Crée un rapport PDF de toutes les mesures chronométrie enregistrées pour le lot saisi dans l'onglet Mesures.",
++            "pushButton_chrono_export_xlsx_lot": "Exporte en XLSX les mesures de chronométrie et de tension enregistrées pour le lot saisi.",
++            "pushButton_chrono_export_pdf_lot": "Crée un rapport PDF regroupant chronométrie et tensions pour le lot saisi.",
+             "pushButton_voltage_open_calibration": "Ouvre l'onglet d'étalonnage ADS1115. Une calibration valide est obligatoire avant toute mesure officielle de tension.",
++            "pushButton_voltage_measure_all": "Lance les rampes de tension puis règle automatiquement l'EA à la tension fixe de chronométrie. Aucun changement manuel de source. Les réglages de capture, pulse et sanctions proviennent de l'onglet Chronométrie contacts.",
+             "pushButton_calibration_request_ads": "Demande une lecture fraîche du RAW ADS1115 au RP2040.",
+             "pushButton_calibration_capture_low": "Capture le RAW ADS1115 au point bas. Saisir la valeur réellement lue au multimètre, pas la consigne EA.",
+             "pushButton_calibration_capture_high": "Capture le RAW ADS1115 au point haut, idéalement vers 30 V.",
+@@ -2508,91 +2972,64 @@
+     def chrono_database_admin_refresh(self):
+         search = self.lineEdit_db_lot_filter.text().strip() if hasattr(self, "lineEdit_db_lot_filter") else ""
+         try:
+-            self.chrono_init_db()
++            self.voltage_init_db()
+             db_size = self.chrono_db_file.stat().st_size if self.chrono_db_file.exists() else 0
+             params = []
+             where = ""
+             if search:
+-                where = """
+-                WHERE lot LIKE ? OR relais LIKE ? OR nom_test LIKE ? OR sn LIKE ?
+-                """
++                where = "WHERE lot LIKE ? OR relais LIKE ? OR nom_test LIKE ? OR sn LIKE ?"
+                 params = [f"%{search}%", f"%{search}%", f"%{search}%", f"%{search}%"]
+             with self.chrono_connect_db() as con:
+-                rows = con.execute(
+-                    f"""
+-                    SELECT
+-                        lot,
+-                        relais,
+-                        nom_test,
+-                        COUNT(*) AS nb_mesures,
+-                        COUNT(DISTINCT sn) AS nb_sn,
+-                        SUM(CASE WHEN resultat = 'OK' THEN 1 ELSE 0 END) AS nb_ok,
+-                        SUM(CASE WHEN resultat <> 'OK' THEN 1 ELSE 0 END) AS nb_defauts,
+-                        MAX(timestamp) AS derniere_mesure,
+-                        MAX(relay_type) AS relay_type
+-                    FROM mesures_chrono_contacts
+-                    {where}
++                rows = con.execute(f"""
++                    WITH toutes AS (
++                        SELECT 'CHRONO' AS source, lot, relais, nom_test, sn, resultat, timestamp, relay_type
++                        FROM mesures_chrono_contacts
++                        UNION ALL
++                        SELECT 'TENSION' AS source, lot, relais, nom_test, sn, resultat, timestamp, relay_type
++                        FROM mesures_tension_fonctionnement
++                    )
++                    SELECT lot, relais, nom_test,
++                           COUNT(DISTINCT sn) AS nb_sn,
++                           SUM(CASE WHEN source='CHRONO' THEN 1 ELSE 0 END) AS nb_chrono,
++                           SUM(CASE WHEN source='TENSION' THEN 1 ELSE 0 END) AS nb_tensions,
++                           COUNT(*) AS nb_total,
++                           SUM(CASE WHEN resultat='OK' THEN 1 ELSE 0 END) AS nb_ok,
++                           SUM(CASE WHEN resultat<>'OK' THEN 1 ELSE 0 END) AS nb_defauts,
++                           MAX(timestamp) AS derniere_mesure,
++                           MAX(relay_type) AS relay_type
++                    FROM toutes {where}
+                     GROUP BY lot, relais, nom_test
+                     ORDER BY derniere_mesure DESC, lot COLLATE NOCASE ASC
+-                    """,
+-                    params,
+-                ).fetchall()
+-                nb_total = con.execute("SELECT COUNT(*) AS n FROM mesures_chrono_contacts").fetchone()["n"]
++                """, params).fetchall()
++                nb_chrono = con.execute("SELECT COUNT(*) AS n FROM mesures_chrono_contacts").fetchone()["n"]
++                nb_tension = con.execute("SELECT COUNT(*) AS n FROM mesures_tension_fonctionnement").fetchone()["n"]
+             self.label_db_admin_file.setText(str(self.chrono_db_file))
+             suffix = f" - filtre : {search}" if search else ""
+             self.label_db_admin_status.setText(
+-                f"Base chronométrie OK - {nb_total} mesure(s) enregistrée(s) - {len(rows)} groupe(s) affiché(s){suffix} - {db_size / 1024:.1f} Ko"
+-            )
+-            self.label_db_admin_status.setStyleSheet(
+-                "background-color: rgb(220,245,255); border: 2px solid rgb(70,130,180); padding: 8px; font-size: 11pt; font-weight: bold;"
++                f"Base chronométrie + tensions OK - {nb_chrono} chrono - {nb_tension} tension(s) - {len(rows)} groupe(s){suffix} - {db_size / 1024:.1f} Ko"
+             )
++            self.label_db_admin_status.setStyleSheet("background-color: rgb(220,245,255); border: 2px solid rgb(70,130,180); padding: 8px; font-size: 11pt; font-weight: bold;")
+             table = self.tableWidget_db_lots
+             table.setSortingEnabled(False)
+-            table.setColumnCount(9)
+-            table.setHorizontalHeaderLabels(["Lot", "Relais", "Nom test", "SN", "Mesures", "OK", "Défauts", "Dernière mesure", "Type"])
++            table.setColumnCount(11)
++            table.setHorizontalHeaderLabels(["Lot", "Relais", "Nom test", "SN", "Chrono", "Tensions", "Total", "OK", "Défauts", "Dernière mesure", "Type"])
+             table.setRowCount(len(rows))
+             for row_index, record in enumerate(rows):
+                 lot_raw = str(record["lot"] or "")
+-                relais = str(record["relais"] or "")
+-                nom_test = str(record["nom_test"] or "")
+-                vals = [
+-                    lot_raw,
+-                    relais,
+-                    nom_test,
+-                    int(record["nb_sn"] or 0),
+-                    int(record["nb_mesures"] or 0),
+-                    int(record["nb_ok"] or 0),
+-                    int(record["nb_defauts"] or 0),
+-                    self.format_datetime_fr(record["derniere_mesure"]),
+-                    str(record["relay_type"] or ""),
+-                ]
+-                sorts = [
+-                    lot_raw.lower(),
+-                    relais.lower(),
+-                    nom_test.lower(),
+-                    int(record["nb_sn"] or 0),
+-                    int(record["nb_mesures"] or 0),
+-                    int(record["nb_ok"] or 0),
+-                    int(record["nb_defauts"] or 0),
+-                    str(record["derniere_mesure"] or ""),
+-                    str(record["relay_type"] or "").lower(),
+-                ]
+-                for col, (val, sort_value) in enumerate(zip(vals, sorts)):
+-                    item = self.table_item_sort(val, sort_value)
++                vals = [lot_raw, str(record["relais"] or ""), str(record["nom_test"] or ""), int(record["nb_sn"] or 0), int(record["nb_chrono"] or 0), int(record["nb_tensions"] or 0), int(record["nb_total"] or 0), int(record["nb_ok"] or 0), int(record["nb_defauts"] or 0), self.format_datetime_fr(record["derniere_mesure"]), str(record["relay_type"] or "")]
++                for col, val in enumerate(vals):
++                    item = self.table_item_sort(val, val)
+                     if col == 0:
+                         item.setData(Qt.UserRole + 1, lot_raw)
+-                        item.setData(Qt.UserRole + 2, relais)
+-                        item.setData(Qt.UserRole + 3, nom_test)
++                        item.setData(Qt.UserRole + 2, str(record["relais"] or ""))
++                        item.setData(Qt.UserRole + 3, str(record["nom_test"] or ""))
+                     table.setItem(row_index, col, item)
+             table.setSortingEnabled(True)
+-            for col, width in enumerate([80, 80, 110, 45, 70, 45, 65, 120, 75]):
++            for col, width in enumerate([80, 110, 135, 45, 60, 65, 55, 50, 60, 125, 85]):
+                 table.setColumnWidth(col, width)
+         except Exception as exc:
