@@ -1,0 +1,101 @@
+{
+  "version": "2.12.3",
+  "scenarios": [
+    {
+      "name": "Neutral screen norme",
+      "description": "Scénario strict MIL-PRF-39016H 4.8.7.7 : BE/BR max 3 avec vérification neutre, si pas neutre après 3 essais accepté, sinon BE puis vérification latch, répéter BE/BR avec vérification neutre, puis BR avec vérification reset.",
+      "steps": [
+        {
+          "action": "BEBR",
+          "pulse_ms": 10,
+          "check": "NEUTRAL",
+          "max_attempts": 3,
+          "on_fail": "ACCEPT",
+          "description": "Recherche position neutre"
+        },
+        {
+          "action": "BE",
+          "pulse_ms": 10,
+          "check": "LATCH_RED",
+          "max_attempts": 1,
+          "on_fail": "REJECT",
+          "description": "Vérifier latch / rouges T"
+        },
+        {
+          "action": "BEBR",
+          "pulse_ms": 10,
+          "check": "NEUTRAL",
+          "max_attempts": 1,
+          "on_fail": "REJECT",
+          "description": "4.8.7.7b(2) : BE/BR, vérifier neutre"
+        },
+        {
+          "action": "BR",
+          "pulse_ms": 10,
+          "check": "RESET_GREEN",
+          "max_attempts": 1,
+          "on_fail": "REJECT",
+          "description": "Vérifier reset / verts R"
+        }
+      ]
+    },
+    {
+      "name": "BR puis BE",
+      "description": "Essai simple reset puis latch.",
+      "steps": [
+        {
+          "action": "BR",
+          "pulse_ms": 10,
+          "check": "RESET_GREEN",
+          "max_attempts": 1,
+          "on_fail": "REJECT",
+          "description": "Reset d'abord"
+        },
+        {
+          "action": "BE",
+          "pulse_ms": 10,
+          "check": "LATCH_RED",
+          "max_attempts": 1,
+          "on_fail": "REJECT",
+          "description": "Latch ensuite"
+        }
+      ]
+    },
+    {
+      "name": "BE puis BR",
+      "description": "Essai simple latch puis reset.",
+      "steps": [
+        {
+          "action": "BE",
+          "pulse_ms": 10,
+          "check": "LATCH_RED",
+          "max_attempts": 1,
+          "on_fail": "REJECT",
+          "description": "Latch d'abord"
+        },
+        {
+          "action": "BR",
+          "pulse_ms": 10,
+          "check": "RESET_GREEN",
+          "max_attempts": 1,
+          "on_fail": "REJECT",
+          "description": "Reset ensuite"
+        }
+      ]
+    },
+    {
+      "name": "BE/BR seulement x3",
+      "description": "Recherche de neutre uniquement, maximum 3 essais.",
+      "steps": [
+        {
+          "action": "BEBR",
+          "pulse_ms": 10,
+          "check": "NEUTRAL",
+          "max_attempts": 3,
+          "on_fail": "ACCEPT",
+          "description": "Neutral screen seul"
+        }
+      ]
+    }
+  ]
+}
