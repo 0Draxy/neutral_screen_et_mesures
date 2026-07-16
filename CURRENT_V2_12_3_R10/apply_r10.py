@@ -9,6 +9,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 HERE = Path(__file__).resolve().parent
 PATCH_DIR = HERE / "patches"
+SUPPORT_DIR = HERE / "support"
 
 PATCHES = {
     "main": {
@@ -26,10 +27,13 @@ PATCHES = {
     "firmware": {
         "glob": "firmware.patch.part*",
         "source": ROOT / "rp2040_relais_28vdc_precision_v2_12_2_ADS1115_GP26_RGB.ino",
-        "target": ROOT / "rp2040_relais_28vdc_precision_v2_12_3_ADS1115_GP26_RGB.ino",
+        "target": ROOT / "rp2040_relais_rp2040_v2_12_3_ADS1115_GP26_RGB.ino",
         "sha256": "4dc604fcffbc257b0c5c4065bfff7c928809784e0efdad42b25d104c007e3a6a",
     },
 }
+
+# Correct the firmware target name while keeping the dictionary compact above.
+PATCHES["firmware"]["target"] = ROOT / "rp2040_relais_28vdc_precision_v2_12_3_ADS1115_GP26_RGB.ino"
 
 
 def sha256(path: Path) -> str:
@@ -79,6 +83,23 @@ def apply_one(name: str, config: dict[str, object]) -> None:
     print(f"OK  {target.name}  {actual}")
 
 
+def install_support_files() -> None:
+    if not SUPPORT_DIR.is_dir():
+        raise FileNotFoundError(f"Dossier support absent : {SUPPORT_DIR}")
+    for source in sorted(SUPPORT_DIR.iterdir()):
+        if source.is_file():
+            destination = ROOT / source.name
+            shutil.copy2(source, destination)
+            print(f"OK  support/{source.name} -> {destination.name}")
+
+
+def create_reference_databases() -> None:
+    helper = ROOT / "create_reference_databases.py"
+    completed = subprocess.run([sys.executable, str(helper)], cwd=ROOT, text=True)
+    if completed.returncode != 0:
+        raise RuntimeError("Création des bases SQLite de référence impossible.")
+
+
 def main() -> int:
     if shutil.which("patch") is None:
         print("ERREUR : la commande système 'patch' est requise.", file=sys.stderr)
@@ -86,6 +107,8 @@ def main() -> int:
         return 2
     for name, config in PATCHES.items():
         apply_one(name, config)
+    install_support_files()
+    create_reference_databases()
     print("R10_RECONSTRUCTION_OK")
     return 0
 
