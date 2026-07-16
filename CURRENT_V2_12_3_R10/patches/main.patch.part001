@@ -1,0 +1,239 @@
++            if timeout_changed:
++                try:
++                    self.ser.timeout = old_timeout
++                except Exception:
++                    pass
++
+     def generator_state(self):
++        return self.query_required("FUNC:GEN:WAVE:STAT?", "état générateur").upper()
++
++    def generator_selection(self):
++        """Retourne le mode générateur actif (VOLTAGE/CURRENT/NONE...)."""
++        return self.query_required("FUNC:GEN:SEL?", "sélection générateur").upper()
++
++    @classmethod
++    def generator_selection_is_none(cls, response):
++        text, tokens = cls._state_tokens(response)
++        return text == "NONE" or "NONE" in tokens
++
++    @classmethod
++    def generator_selection_is_arbitrary(cls, response):
++        text, tokens = cls._state_tokens(response)
++        return any(token.startswith(("VOLT", "CURR")) for token in tokens) or text.startswith(("VOLT", "CURR"))
++
++    def drain_scpi_errors(self, max_reads=8):
++        """Vide les erreurs anciennes et les retourne pour diagnostic, sans masquer une absence de réponse."""
++        previous = []
++        for _ in range(max(1, int(max_reads))):
++            response = self.read_scpi_error()
++            if self.scpi_error_is_clear(response):
++                return previous
++            previous.append(response)
++        raise RuntimeError("File SCPI ancienne impossible à vider : " + " | ".join(previous))
++
++    def output_state(self):
++        return self.query_required("OUTP?", "état sortie").upper()
++
++    def measured_voltage(self):
++        return self.parse_number(self.query_required("MEAS:VOLT?", "tension de sortie"), "tension de sortie")
++
++    def safe_stop_and_confirm(
++        self,
++        max_voltage_v=EA_STOP_CONFIRM_MAX_V,
++        settle_s=EA_STOP_CONFIRM_SETTLE_S,
++        attempts=EA_STOP_CONFIRM_ATTEMPTS,
++        confirm_timeout_s=EA_STOP_CONFIRM_TIMEOUT_S,
++        poll_interval_s=EA_STOP_CONFIRM_POLL_INTERVAL_S,
++    ):
++        """Met l'EA dans un état sûr et attend sa décharge réelle avant validation.
++
++        R3 : la confirmation n'est plus faite après un délai fixe de 0,2 s. La sortie,
++        la sélection du générateur et MEAS:VOLT? sont surveillées jusqu'à 5 s. Le
++        contrôle réussit dès que SEL=NONE, OUTP=OFF et |V| <= seuil. Le diagnostic
++        conserve les dernières réponses exactes en cas d'échec.
++        """
++        result = {
++            "confirmed": False,
++            "generator_selection_before": "",
++            "generator_selection": "",
++            "generator_state": "",
++            "output_state": "",
++            "measured_voltage_v": None,
++            "scpi_error": "",
++            "preexisting_scpi_errors": [],
++            "errors": [],
++            "poll_count": 0,
++            "confirmation_elapsed_s": 0.0,
++        }
++        if not self.connected or self.ser is None or not self.ser.is_open:
++            result["errors"].append("Alimentation EA non connectée.")
++            return result
++
++        old_timeout = getattr(self.ser, "timeout", None)
++        timeout_changed = False
+         try:
+-            return self.query("FUNC:GEN:WAVE:STAT?").strip().upper()
++            if old_timeout is not None:
++                self.ser.timeout = min(float(old_timeout), EA_STOP_CONFIRM_QUERY_TIMEOUT_S)
++                timeout_changed = True
+         except Exception:
+-            return ""
++            timeout_changed = False
++
++        started = time.monotonic()
++        total_timeout_s = max(0.05, float(confirm_timeout_s))
++        deadline = started + total_timeout_s
++        max_attempts = max(1, int(attempts))
++        last_command_errors = []
++        last_check_errors = []
++
++        try:
++            for attempt in range(1, max_attempts + 1):
++                command_errors = []
++                check_errors = []
++
++                # Les erreurs antérieures sont purgées avant la séquence actuelle,
++                # mais restent conservées dans le diagnostic.
++                try:
++                    old_errors = self.drain_scpi_errors()
++                    if old_errors:
++                        result["preexisting_scpi_errors"].extend(old_errors)
++                except Exception as exc:
++                    check_errors.append(f"purge file SCPI: {exc}")
++
++                selection_before = ""
++                if not check_errors:
++                    try:
++                        selection_before = self.generator_selection()
++                        result["generator_selection_before"] = selection_before
++                    except Exception as exc:
++                        check_errors.append(f"sélection générateur initiale: {exc}")
++
++                # WAVE:STAT n'est envoyé que si un générateur arbitraire est actif.
++                if not check_errors and self.generator_selection_is_arbitrary(selection_before):
++                    try:
++                        self.send("FUNC:GEN:WAVE:STAT STOP")
++                    except Exception as exc:
++                        command_errors.append(f"FUNC:GEN:WAVE:STAT STOP: {exc}")
++
++                for command in ("OUTP OFF", "VOLT 0", "FUNC:GEN:SEL NONE"):
++                    try:
++                        self.send(command)
++                    except Exception as exc:
++                        command_errors.append(f"{command}: {exc}")
++
++                if settle_s:
++                    time.sleep(max(0.0, min(float(settle_s), max(0.0, deadline - time.monotonic()))))
++
++                # Surveillance adaptative : la sortie d'une alimentation peu chargée
++                # peut nécessiter plusieurs secondes pour descendre sous 0,200 V.
++                # Le délai total est partagé entre les tentatives afin de pouvoir
++                # réémettre une fois les commandes d'arrêt sans dépasser 5 s.
++                attempt_deadline = started + (total_timeout_s * attempt / max_attempts)
++                attempt_deadline = min(deadline, attempt_deadline)
++                while time.monotonic() <= attempt_deadline:
++                    result["poll_count"] += 1
++                    poll_errors = []
++                    try:
++                        result["generator_selection"] = self.generator_selection()
++                        result["generator_state"] = result["generator_selection"]
++                    except Exception as exc:
++                        poll_errors.append(f"sélection générateur finale: {exc}")
++                    try:
++                        result["output_state"] = self.output_state()
++                    except Exception as exc:
++                        poll_errors.append(f"état sortie: {exc}")
++                    try:
++                        result["measured_voltage_v"] = float(self.measured_voltage())
++                    except Exception as exc:
++                        poll_errors.append(f"tension sortie: {exc}")
++
++                    generator_ok = self.generator_selection_is_none(result["generator_selection"])
++                    output_ok = self.output_state_is_off(result["output_state"])
++                    voltage = result["measured_voltage_v"]
++                    voltage_ok = voltage is not None and abs(float(voltage)) <= abs(float(max_voltage_v))
++
++                    if generator_ok and output_ok and voltage_ok and not poll_errors:
++                        try:
++                            result["scpi_error"] = self.read_scpi_error()
++                        except Exception as exc:
++                            poll_errors.append(f"file SCPI: {exc}")
++                        scpi_ok = self.scpi_error_is_clear(result["scpi_error"])
++                        if scpi_ok and not poll_errors and not command_errors and not check_errors:
++                            result["confirmed"] = True
++                            result["errors"] = []
++                            result["confirmation_elapsed_s"] = time.monotonic() - started
++                            return result
++                        if not scpi_ok:
++                            poll_errors.append(
++                                f"file SCPI non claire: {result['scpi_error'] or 'réponse vide'}"
++                            )
++                            last_check_errors = check_errors + poll_errors
++                            break
++
++                    last_check_errors = check_errors + poll_errors
++                    if time.monotonic() >= attempt_deadline:
++                        break
++                    remaining = max(0.0, attempt_deadline - time.monotonic())
++                    time.sleep(min(max(0.01, float(poll_interval_s)), remaining))
++
++                last_command_errors = command_errors
++                if result["confirmed"] or time.monotonic() >= deadline:
++                    break
++
++            # Une dernière lecture de la file d'erreur complète le diagnostic si
++            # l'état sûr n'a pas été atteint avant le délai maximal.
++            if not result["scpi_error"]:
++                try:
++                    result["scpi_error"] = self.read_scpi_error()
++                except Exception as exc:
++                    last_check_errors.append(f"file SCPI finale: {exc}")
++
++            generator_ok = self.generator_selection_is_none(result["generator_selection"])
++            output_ok = self.output_state_is_off(result["output_state"])
++            voltage = result["measured_voltage_v"]
++            voltage_ok = voltage is not None and abs(float(voltage)) <= abs(float(max_voltage_v))
++            scpi_ok = self.scpi_error_is_clear(result["scpi_error"])
++            validation_errors = []
++            if not generator_ok:
++                validation_errors.append(
++                    f"mode générateur non quitté: {result['generator_selection'] or 'réponse vide'}"
++                )
++            if not output_ok:
++                validation_errors.append(
++                    f"sortie non coupée: {result['output_state'] or 'réponse vide'}"
++                )
++            if not voltage_ok:
++                voltage_text = "non relue" if voltage is None else f"{float(voltage):.3f} V"
++                validation_errors.append(
++                    f"tension résiduelle {voltage_text} > {abs(float(max_voltage_v)):.3f} V "
++                    f"après {total_timeout_s:.1f} s"
++                )
++            if not scpi_ok:
++                validation_errors.append(
++                    f"file SCPI non claire: {result['scpi_error'] or 'réponse vide'}"
++                )
++            result["errors"] = last_command_errors + last_check_errors + validation_errors
++            result["confirmation_elapsed_s"] = time.monotonic() - started
++            return result
++        finally:
++            if timeout_changed:
++                try:
++                    self.ser.timeout = old_timeout
++                except Exception:
++                    pass
++
+ 
+ 
+ class SortableTableWidgetItem(QTableWidgetItem):
+@@ -1167,7 +1596,7 @@
+         self.comboBox_prod_operateur = self.get_widget(QComboBox, "comboBox_prod_operateur")
+         self.dateEdit_prod_date = self.get_widget(QDateEdit, "dateEdit_prod_date")
+         self.pushButton_prod_save_context = self.get_widget(QPushButton, "pushButton_prod_save_context")
+-        self.pushButton_prod_reload_base = self.window.findChild(QPushButton, "pushButton_prod_reload_base")
++        self.pushButton_prod_reload_base = self.get_widget(QPushButton, "pushButton_prod_reload_base")
+         self.pushButton_prod_export_pdf_lot = self.get_widget(QPushButton, "pushButton_prod_export_pdf_lot")
+         self.lineEdit_prod_search_lot = self.get_widget(QLineEdit, "lineEdit_prod_search_lot")
+         self.pushButton_prod_search_clear = self.get_widget(QPushButton, "pushButton_prod_search_clear")
+@@ -1287,7 +1716,7 @@
+         self.label_led_latch_contact_8 = self.get_widget(QLabel, "label_led_latch_contact_8")
