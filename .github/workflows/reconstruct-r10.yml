@@ -1,0 +1,103 @@
+name: Reconstruct and publish R10 sources
+
+on:
+  push:
+    branches:
+      - v2.12.3-r10-ui-reference
+    paths:
+      - R10_UPGRADE_PARTS/**
+      - .github/workflows/reconstruct-r10.yml
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  reconstruct-r10:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    env:
+      QT_QPA_PLATFORM: offscreen
+
+    steps:
+      - name: Checkout branch
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install patch tool
+        run: python -m pip install --upgrade pip bsdiff4
+
+      - name: Reconstruct verified bundle
+        shell: bash
+        run: |
+          cat \
+            R10_UPGRADE_PARTS/part-000.b64 \
+            R10_UPGRADE_PARTS/part-001.b64 \
+            R10_UPGRADE_PARTS/part-002.b64 \
+            R10_UPGRADE_PARTS/part-003a.b64 \
+            R10_UPGRADE_PARTS/part-003b.b64 \
+            R10_UPGRADE_PARTS/part-003c.b64 \
+            R10_UPGRADE_PARTS/part-003d.b64 \
+            R10_UPGRADE_PARTS/part-004.b64 \
+            > r10_upgrade_bundle.tar.xz.b64
+          base64 --decode r10_upgrade_bundle.tar.xz.b64 > r10_upgrade_bundle.tar.xz
+          echo "fe627deec98ee3766185bc6886b92399409cabfb798528ee90cbedc1d6442b6d  r10_upgrade_bundle.tar.xz" | sha256sum --check
+          tar -xJf r10_upgrade_bundle.tar.xz
+          python r10_upgrade_bundle/apply_r10.py
+
+      - name: Verify exact R10 source files
+        shell: bash
+        run: |
+          echo "268492cde1ec7def1f5cc52fe136b1f0e26c2be27f561ddafecd7cd2c0221c98  main_ihm_relais_rp2040_v2_12_3.py" | sha256sum --check
+          echo "188a0c725a3bbd1632d863d60d907d032e1ff62d146cb510d9c6a2b7ebf6d3e7  ihm_relais_rp2040_28vdc_precision_v2_12_3.ui" | sha256sum --check
+          echo "4dc604fcffbc257b0c5c4065bfff7c928809784e0efdad42b25d104c007e3a6a  rp2040_relais_28vdc_precision_v2_12_3_ADS1115_GP26_RGB.ino" | sha256sum --check
+          echo "be114bcaae6e2f46aed120c396a4cb05a8bd43341c160490fae4865e6835f062  build_exe_onefile_ihm_relais_rp2040_v2_12_3_R10.bat" | sha256sum --check
+
+      - name: Install project requirements
+        run: python -m pip install -r requirements.txt
+
+      - name: Run software tests
+        shell: bash
+        run: |
+          python -m py_compile main_ihm_relais_rp2040_v2_12_3.py
+          python test_capture_premier_passage_v2_12_3.py
+          python test_securite_ea_plausibilite_v2_12_3.py
+          python test_integration_chrono_tensions_v2_12_3_R4.py
+          python test_reglages_rampes_leds_v2_12_3_R10.py
+          python test_mesurer_tout_exports_v2_12_3_R10.py
+          python test_mesurer_tout_ea_auto_v2_12_3_R10.py
+
+      - name: Commit reconstructed R10 sources
+        shell: bash
+        run: |
+          rm -rf r10_upgrade_bundle r10_upgrade_bundle.tar.xz r10_upgrade_bundle.tar.xz.b64
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add \
+            main_ihm_relais_rp2040_v2_12_3.py \
+            ihm_relais_rp2040_28vdc_precision_v2_12_3.ui \
+            rp2040_relais_28vdc_precision_v2_12_3_ADS1115_GP26_RGB.ino \
+            SCHEMA_SQLITE_V2_12_3.sql \
+            neutral_scenarios.json \
+            requirements.txt \
+            build_exe_onefile_ihm_relais_rp2040_v2_12_3_R10.bat \
+            test_capture_premier_passage_v2_12_3.py \
+            test_securite_ea_plausibilite_v2_12_3.py \
+            test_integration_chrono_tensions_v2_12_3_R4.py \
+            test_reglages_rampes_leds_v2_12_3_R10.py \
+            test_mesurer_tout_exports_v2_12_3_R10.py \
+            test_mesurer_tout_ea_auto_v2_12_3_R10.py \
+            PROMPT_AUDIT_CLAUDE_V2_12_3_R10_UI_REFERENCE.md \
+            README_GITHUB_V2_12_3_R10.md
+          if git diff --cached --quiet; then
+            echo "No source changes to commit."
+          else
+            git commit -m "Publish Neutral Screen V2.12.3 R10 sources"
+            git push
+          fi
