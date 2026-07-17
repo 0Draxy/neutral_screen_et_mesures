@@ -1,0 +1,1 @@
+Claude doit auditer la branche sans modifier les fichiers pendant l'analyse et distinguer les constats certains, les tests logiciels et les validations à effectuer sur Windows, sur le matériel et en métrologie.
