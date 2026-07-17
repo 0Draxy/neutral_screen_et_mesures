@@ -1,0 +1,43 @@
+name: Assemble R10 source package
+
+on:
+  push:
+    branches:
+      - v2.12.3-r10-ui-reference
+    paths:
+      - tmp_upload/READY
+
+permissions:
+  contents: write
+
+jobs:
+  assemble:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: v2.12.3-r10-ui-reference
+          fetch-depth: 0
+
+      - name: Assemble and verify archive
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat tmp_upload/chunk_*.b64 | base64 --decode > /tmp/r10_source.zip
+          echo "0a40861ddabdb891ea7c385d08751894b6ccc146f495be88dc765b8a8eadd9dd  /tmp/r10_source.zip" | sha256sum -c -
+          unzip -o /tmp/r10_source.zip -d .
+          rm -rf tmp_upload
+
+      - name: Commit published source
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          if git diff --cached --quiet; then
+            echo "No changes to commit"
+          else
+            git commit -m "Publish Neutral Screen V2.12.3 R10 UI reference"
+            git push origin HEAD:v2.12.3-r10-ui-reference
+          fi
