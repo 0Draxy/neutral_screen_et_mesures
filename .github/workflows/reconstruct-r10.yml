@@ -63,21 +63,7 @@ jobs:
           echo "4dc604fcffbc257b0c5c4065bfff7c928809784e0efdad42b25d104c007e3a6a  rp2040_relais_28vdc_precision_v2_12_3_ADS1115_GP26_RGB.ino" | sha256sum --check
           echo "be114bcaae6e2f46aed120c396a4cb05a8bd43341c160490fae4865e6835f062  build_exe_onefile_ihm_relais_rp2040_v2_12_3_R10.bat" | sha256sum --check
 
-      - name: Install project requirements
-        run: python -m pip install -r requirements.txt
-
-      - name: Run software tests
-        shell: bash
-        run: |
-          python -m py_compile main_ihm_relais_rp2040_v2_12_3.py
-          python test_capture_premier_passage_v2_12_3.py
-          python test_securite_ea_plausibilite_v2_12_3.py
-          python test_integration_chrono_tensions_v2_12_3_R4.py
-          python test_reglages_rampes_leds_v2_12_3_R10.py
-          python test_mesurer_tout_exports_v2_12_3_R10.py
-          python test_mesurer_tout_ea_auto_v2_12_3_R10.py
-
-      - name: Commit reconstructed R10 sources
+      - name: Publish reconstructed R10 sources
         shell: bash
         run: |
           rm -rf r10_upgrade_bundle r10_upgrade_bundle.tar.xz r10_upgrade_bundle.tar.xz.b64
@@ -105,3 +91,27 @@ jobs:
             git commit -m "Publish Neutral Screen V2.12.3 R10 sources"
             git push origin HEAD:v2.12.3-r10-ui-reference
           fi
+
+      - name: Install project requirements
+        run: python -m pip install -r requirements.txt
+
+      - name: Python syntax
+        run: python -m py_compile main_ihm_relais_rp2040_v2_12_3.py
+
+      - name: FIRST_PASSAGE test
+        run: python test_capture_premier_passage_v2_12_3.py
+
+      - name: EA safety and plausibility test
+        run: python test_securite_ea_plausibilite_v2_12_3.py
+
+      - name: Chronometry and voltage integration test
+        run: python test_integration_chrono_tensions_v2_12_3_R4.py
+
+      - name: Ramp settings and LEDs test
+        run: python test_reglages_rampes_leds_v2_12_3_R10.py
+
+      - name: Combined exports test
+        run: python test_mesurer_tout_exports_v2_12_3_R10.py
+
+      - name: Automatic EA cycle test
+        run: python test_mesurer_tout_ea_auto_v2_12_3_R10.py
