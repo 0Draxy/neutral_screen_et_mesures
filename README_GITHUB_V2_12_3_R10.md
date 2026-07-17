@@ -1,16 +1,20 @@
-# Neutral Screen V2.12.3 R10
+# Neutral Screen V2.12.3 R10 — audit public
 
-Branche d’audit de la version R10 avec le dernier fichier Qt Designer fourni par l’utilisateur comme référence officielle.
+Cette archive contient la version R10 à auditer avec le dernier fichier Qt Designer fourni par l'utilisateur comme référence officielle.
 
-## Interface officielle
+## UI officielle
 
-Le fichier canonique est `ihm_relais_rp2040_28vdc_precision_v2_12_3.ui`. Il correspond au fichier utilisateur `ihm_relais_rp2040_28vdc_precision_v2_12_3(2).ui`.
+`ihm_relais_rp2040_28vdc_precision_v2_12_3.ui`
 
-Éléments contrôlés :
+Cette UI provient de `ihm_relais_rp2040_28vdc_precision_v2_12_3(2).ui`.
 
-- fenêtre : `Cycleur - Neutral Screen - V2.12.3 R10 - (Par O.MARECHAL)` ;
-- premier onglet : `Production` ;
-- titre interne : `Neutral Screen - Cycleur - Mesures` ;
-- version interne : `V 2.12.3 R10`.
+Contrôles locaux effectués avec cette UI :
 
-Les fichiers privés de licence et les bases utilisateur ne doivent pas être publiés.
+- compilation syntaxique du Python : OK ;
+- `test_capture_premier_passage_v2_12_3.py` : OK ;
+- `test_integration_chrono_tensions_v2_12_3_R4.py` : OK ;
+- `test_reglages_rampes_leds_v2_12_3_R10.py` : OK ;
+- `test_mesurer_tout_exports_v2_12_3_R10.py` : OK ;
+- `test_mesurer_tout_ea_auto_v2_12_3_R10.py` : OK.
+
+Le module privé `licence_manager.py` et les bases SQLite utilisateur ne sont volontairement pas publiés.
