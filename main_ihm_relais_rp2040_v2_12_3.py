@@ -18,7 +18,7 @@ import serial
 import serial.tools.list_ports
 
 from PySide6.QtCore import QThread, Signal, QTimer, QFile, Qt, QDate, QObject, QEvent, QLineF
-from PySide6.QtGui import QColor, QFont, QKeySequence, QPageSize, QPainter, QPdfWriter, QPen, QShortcut
+from PySide6.QtGui import QColor, QFont, QKeySequence, QPageLayout, QPageSize, QPainter, QPdfWriter, QPen, QShortcut
 from PySide6.QtWidgets import QApplication, QMessageBox, QWidget, QPushButton, QComboBox, QLineEdit, QLabel, QTextEdit, QTableWidget, QTableWidgetItem, QFileDialog, QSpinBox, QHeaderView, QCheckBox, QTabWidget, QDateEdit, QInputDialog, QDialog, QVBoxLayout, QHBoxLayout, QGridLayout, QGroupBox, QToolTip, QDoubleSpinBox
 from PySide6.QtUiTools import QUiLoader
 
@@ -34,7 +34,7 @@ def runtime_output_dir():
 
 
 EXPORT_DIR = runtime_output_dir()
-UI_FILE = APP_DIR / "ihm_relais_rp2040_28vdc_precision_v2_12_2.ui"
+UI_FILE = APP_DIR / "ihm_relais_rp2040_28vdc_precision_v2_12_3.ui"
 
 UINT32_MAX_MS = 4_294_967_295
 MAX_US_TOTAL = UINT32_MAX_MS * 1000
@@ -44,6 +44,18 @@ LOCK_RECOVERY_TRIGGER = os.environ.get("IHM_RECOVERY_TRIGGER", "marechal")
 CHRONO_SPREAD_INFO_US = 50
 CHRONO_LOOP_WARN_US = 200
 CHRONO_TRANSFER_LIMIT_MS = 1.0
+EA_STOP_CONFIRM_MAX_V = 0.200
+EA_STOP_CONFIRM_SETTLE_S = 0.100
+EA_STOP_CONFIRM_ATTEMPTS = 2
+EA_STOP_CONFIRM_QUERY_TIMEOUT_S = 0.350
+EA_STOP_CONFIRM_TIMEOUT_S = 5.000
+EA_STOP_CONFIRM_POLL_INTERVAL_S = 0.150
+EA_STATIC_CONFIRM_TIMEOUT_S = 3.000
+EA_STATIC_CONFIRM_POLL_INTERVAL_S = 0.150
+EA_STATIC_CONFIRM_MIN_TOL_V = 0.150
+EA_STATIC_CONFIRM_REL_TOL = 0.010
+VOLTAGE_PLAUSIBILITY_MIN_TOL_S = 0.750
+VOLTAGE_PLAUSIBILITY_REL_TOL = 0.100
 CHRONO_CONTACT_NAMES = ["R1", "R2", "R3", "R4", "T1", "T2", "T3", "T4"]
 OSCILLO_COMBINED_GAP_US = 2000
 OSCILLO_DISPLAY_ELECTRIC = "ELECTRIC"
@@ -282,6 +294,13 @@ class EAPSU:
         self.send(command)
         return self.ser.readline().decode("ascii", errors="replace").strip()
 
+    def query_required(self, command, name="réponse"):
+        response = self.query(command)
+        text = str(response or "").strip()
+        if not text:
+            raise RuntimeError(f"Aucune réponse EA pour {name} ({command}).")
+        return text
+
     @classmethod
     def parse_number(cls, response, name="valeur"):
         match = cls._NUMBER_RE.search(str(response or ""))
@@ -320,19 +339,16 @@ class EAPSU:
                 pass
 
     def read_scpi_error(self):
-        """Retourne la file d'erreur SCPI. Une réponse vide reste tolérée pour compatibilité."""
-        try:
-            response = self.query("SYST:ERR?")
-        except Exception:
-            return ""
-        self.last_scpi_error = str(response or "").strip()
+        """Retourne la file d'erreur SCPI. Une réponse vide ou un timeout est une erreur."""
+        response = self.query_required("SYST:ERR?", "file d'erreurs SCPI")
+        self.last_scpi_error = str(response).strip()
         return self.last_scpi_error
 
     @staticmethod
     def scpi_error_is_clear(response):
         text = str(response or "").strip()
         if not text:
-            return True
+            return False
         match = re.match(r"\s*([-+]?\d+)", text)
         return bool(match and int(match.group(1)) == 0)
 
@@ -435,11 +451,424 @@ class EAPSU:
         self.send("OUTP ON")
         self.send("FUNC:GEN:WAVE:STAT RUN")
 
-    def generator_state(self):
+    @staticmethod
+    def _state_tokens(response):
+        text = str(response or "").strip().upper()
+        return text, [token for token in re.split(r"[^A-Z0-9.+-]+", text) if token]
+
+    @classmethod
+    def generator_state_is_running(cls, response):
+        text, tokens = cls._state_tokens(response)
+        if text == "ON" or any(token.startswith("RUN") for token in tokens):
+            return True
         try:
-            return self.query("FUNC:GEN:WAVE:STAT?").strip().upper()
+            return cls.parse_number(text, "état générateur") >= 0.5
         except Exception:
-            return ""
+            return False
+
+    @classmethod
+    def generator_state_is_stopped(cls, response):
+        text, tokens = cls._state_tokens(response)
+        if text == "OFF" or any(token.startswith(("STOP", "IDLE")) for token in tokens):
+            return True
+        try:
+            return cls.parse_number(text, "état générateur") < 0.5
+        except Exception:
+            return False
+
+    @classmethod
+    def output_state_is_off(cls, response):
+        text, tokens = cls._state_tokens(response)
+        if text in ("0", "OFF", "FALSE") or "OFF" in tokens:
+            return True
+        try:
+            return abs(cls.parse_number(text, "état sortie")) < 0.5
+        except Exception:
+            return False
+
+    @classmethod
+    def output_state_is_on(cls, response):
+        text, tokens = cls._state_tokens(response)
+        if text in ("1", "ON", "TRUE") or "ON" in tokens:
+            return True
+        try:
+            return abs(cls.parse_number(text, "état sortie")) >= 0.5
+        except Exception:
+            return False
+
+    def configure_static_output_and_confirm(
+        self,
+        target_voltage_v,
+        current_limit_a,
+        timeout_s=EA_STATIC_CONFIRM_TIMEOUT_S,
+        poll_interval_s=EA_STATIC_CONFIRM_POLL_INTERVAL_S,
+    ):
+        """Prépare l'EA en source continue et confirme la tension avant chronométrie.
+
+        Le générateur arbitraire est quitté, la sortie est réglée en mode statique,
+        puis SEL=NONE, OUTP=ON, MEAS:VOLT et SYST:ERR? sont contrôlés. Une réponse
+        vide ou un timeout reste une erreur fermée.
+        """
+        target_voltage_v = float(target_voltage_v)
+        current_limit_a = float(current_limit_a)
+        if not (0.0 < target_voltage_v <= self.NOMINAL_VOLTAGE_V):
+            raise ValueError(
+                f"Tension chronométrie hors plage : {target_voltage_v:.3f} V."
+            )
+        if current_limit_a <= 0.0:
+            raise ValueError("La limite de courant chronométrie doit être supérieure à 0 A.")
+        if not self.connected or self.ser is None or not self.ser.is_open:
+            raise RuntimeError("Alimentation EA non connectée.")
+
+        tolerance_v = max(
+            EA_STATIC_CONFIRM_MIN_TOL_V,
+            abs(target_voltage_v) * EA_STATIC_CONFIRM_REL_TOL,
+        )
+        result = {
+            "confirmed": False,
+            "target_voltage_v": target_voltage_v,
+            "tolerance_v": tolerance_v,
+            "generator_selection": "",
+            "output_state": "",
+            "measured_voltage_v": None,
+            "scpi_error": "",
+            "preexisting_scpi_errors": [],
+            "errors": [],
+            "poll_count": 0,
+            "confirmation_elapsed_s": 0.0,
+        }
+        started = time.monotonic()
+        deadline = started + max(0.25, float(timeout_s))
+        old_timeout = getattr(self.ser, "timeout", None)
+        timeout_changed = False
+        try:
+            if old_timeout is not None:
+                self.ser.timeout = min(float(old_timeout), EA_STOP_CONFIRM_QUERY_TIMEOUT_S)
+                timeout_changed = True
+        except Exception:
+            timeout_changed = False
+
+        try:
+            self.set_remote()
+            previous = self.drain_scpi_errors()
+            if previous:
+                result["preexisting_scpi_errors"] = list(previous)
+            selection = self.generator_selection()
+            if self.generator_selection_is_arbitrary(selection):
+                self.send("FUNC:GEN:WAVE:STAT STOP")
+            self.send("FUNC:GEN:SEL NONE")
+            self.send(f"CURR {current_limit_a:.6f}")
+            self.send("POW MAX")
+            self.send(f"VOLT {target_voltage_v:.6f}")
+            self.send("OUTP ON")
+
+            last_errors = []
+            while time.monotonic() <= deadline:
+                result["poll_count"] += 1
+                poll_errors = []
+                try:
+                    result["generator_selection"] = self.generator_selection()
+                except Exception as exc:
+                    poll_errors.append(f"sélection générateur: {exc}")
+                try:
+                    result["output_state"] = self.output_state()
+                except Exception as exc:
+                    poll_errors.append(f"état sortie: {exc}")
+                try:
+                    result["measured_voltage_v"] = float(self.measured_voltage())
+                except Exception as exc:
+                    poll_errors.append(f"tension sortie: {exc}")
+
+                selection_ok = self.generator_selection_is_none(result["generator_selection"])
+                output_ok = self.output_state_is_on(result["output_state"])
+                measured = result["measured_voltage_v"]
+                voltage_ok = (
+                    measured is not None
+                    and abs(float(measured) - target_voltage_v) <= tolerance_v
+                )
+                if selection_ok and output_ok and voltage_ok and not poll_errors:
+                    try:
+                        result["scpi_error"] = self.read_scpi_error()
+                    except Exception as exc:
+                        poll_errors.append(f"file SCPI: {exc}")
+                    if self.scpi_error_is_clear(result["scpi_error"]) and not poll_errors:
+                        result["confirmed"] = True
+                        result["confirmation_elapsed_s"] = time.monotonic() - started
+                        return result
+                    if not self.scpi_error_is_clear(result["scpi_error"]):
+                        poll_errors.append(
+                            f"file SCPI non claire: {result['scpi_error'] or 'réponse vide'}"
+                        )
+                        last_errors = poll_errors
+                        break
+                last_errors = poll_errors
+                remaining = max(0.0, deadline - time.monotonic())
+                if remaining <= 0:
+                    break
+                time.sleep(min(max(0.01, float(poll_interval_s)), remaining))
+
+            selection_ok = self.generator_selection_is_none(result["generator_selection"])
+            output_ok = self.output_state_is_on(result["output_state"])
+            measured = result["measured_voltage_v"]
+            voltage_ok = (
+                measured is not None
+                and abs(float(measured) - target_voltage_v) <= tolerance_v
+            )
+            validation_errors = list(last_errors)
+            if not selection_ok:
+                validation_errors.append(
+                    f"mode générateur non statique: {result['generator_selection'] or 'réponse vide'}"
+                )
+            if not output_ok:
+                validation_errors.append(
+                    f"sortie EA non active: {result['output_state'] or 'réponse vide'}"
+                )
+            if not voltage_ok:
+                measured_text = "non relue" if measured is None else f"{float(measured):.3f} V"
+                validation_errors.append(
+                    f"tension statique {measured_text}, cible {target_voltage_v:.3f} V "
+                    f"± {tolerance_v:.3f} V"
+                )
+            if not result["scpi_error"]:
+                try:
+                    result["scpi_error"] = self.read_scpi_error()
+                except Exception as exc:
+                    validation_errors.append(f"file SCPI finale: {exc}")
+            if not self.scpi_error_is_clear(result["scpi_error"]):
+                validation_errors.append(
+                    f"file SCPI non claire: {result['scpi_error'] or 'réponse vide'}"
+                )
+            result["errors"] = validation_errors
+            result["confirmation_elapsed_s"] = time.monotonic() - started
+            return result
+        except Exception as exc:
+            result["errors"] = list(result.get("errors", [])) + [str(exc)]
+            result["confirmation_elapsed_s"] = time.monotonic() - started
+            return result
+        finally:
+            if timeout_changed:
+                try:
+                    self.ser.timeout = old_timeout
+                except Exception:
+                    pass
+
+    def generator_state(self):
+        return self.query_required("FUNC:GEN:WAVE:STAT?", "état générateur").upper()
+
+    def generator_selection(self):
+        """Retourne le mode générateur actif (VOLTAGE/CURRENT/NONE...)."""
+        return self.query_required("FUNC:GEN:SEL?", "sélection générateur").upper()
+
+    @classmethod
+    def generator_selection_is_none(cls, response):
+        text, tokens = cls._state_tokens(response)
+        return text == "NONE" or "NONE" in tokens
+
+    @classmethod
+    def generator_selection_is_arbitrary(cls, response):
+        text, tokens = cls._state_tokens(response)
+        return any(token.startswith(("VOLT", "CURR")) for token in tokens) or text.startswith(("VOLT", "CURR"))
+
+    def drain_scpi_errors(self, max_reads=8):
+        """Vide les erreurs anciennes et les retourne pour diagnostic, sans masquer une absence de réponse."""
+        previous = []
+        for _ in range(max(1, int(max_reads))):
+            response = self.read_scpi_error()
+            if self.scpi_error_is_clear(response):
+                return previous
+            previous.append(response)
+        raise RuntimeError("File SCPI ancienne impossible à vider : " + " | ".join(previous))
+
+    def output_state(self):
+        return self.query_required("OUTP?", "état sortie").upper()
+
+    def measured_voltage(self):
+        return self.parse_number(self.query_required("MEAS:VOLT?", "tension de sortie"), "tension de sortie")
+
+    def safe_stop_and_confirm(
+        self,
+        max_voltage_v=EA_STOP_CONFIRM_MAX_V,
+        settle_s=EA_STOP_CONFIRM_SETTLE_S,
+        attempts=EA_STOP_CONFIRM_ATTEMPTS,
+        confirm_timeout_s=EA_STOP_CONFIRM_TIMEOUT_S,
+        poll_interval_s=EA_STOP_CONFIRM_POLL_INTERVAL_S,
+    ):
+        """Met l'EA dans un état sûr et attend sa décharge réelle avant validation.
+
+        R3 : la confirmation n'est plus faite après un délai fixe de 0,2 s. La sortie,
+        la sélection du générateur et MEAS:VOLT? sont surveillées jusqu'à 5 s. Le
+        contrôle réussit dès que SEL=NONE, OUTP=OFF et |V| <= seuil. Le diagnostic
+        conserve les dernières réponses exactes en cas d'échec.
+        """
+        result = {
+            "confirmed": False,
+            "generator_selection_before": "",
+            "generator_selection": "",
+            "generator_state": "",
+            "output_state": "",
+            "measured_voltage_v": None,
+            "scpi_error": "",
+            "preexisting_scpi_errors": [],
+            "errors": [],
+            "poll_count": 0,
+            "confirmation_elapsed_s": 0.0,
+        }
+        if not self.connected or self.ser is None or not self.ser.is_open:
+            result["errors"].append("Alimentation EA non connectée.")
+            return result
+
+        old_timeout = getattr(self.ser, "timeout", None)
+        timeout_changed = False
+        try:
+            if old_timeout is not None:
+                self.ser.timeout = min(float(old_timeout), EA_STOP_CONFIRM_QUERY_TIMEOUT_S)
+                timeout_changed = True
+        except Exception:
+            timeout_changed = False
+
+        started = time.monotonic()
+        total_timeout_s = max(0.05, float(confirm_timeout_s))
+        deadline = started + total_timeout_s
+        max_attempts = max(1, int(attempts))
+        last_command_errors = []
+        last_check_errors = []
+
+        try:
+            for attempt in range(1, max_attempts + 1):
+                command_errors = []
+                check_errors = []
+
+                # Les erreurs antérieures sont purgées avant la séquence actuelle,
+                # mais restent conservées dans le diagnostic.
+                try:
+                    old_errors = self.drain_scpi_errors()
+                    if old_errors:
+                        result["preexisting_scpi_errors"].extend(old_errors)
+                except Exception as exc:
+                    check_errors.append(f"purge file SCPI: {exc}")
+
+                selection_before = ""
+                if not check_errors:
+                    try:
+                        selection_before = self.generator_selection()
+                        result["generator_selection_before"] = selection_before
+                    except Exception as exc:
+                        check_errors.append(f"sélection générateur initiale: {exc}")
+
+                # WAVE:STAT n'est envoyé que si un générateur arbitraire est actif.
+                if not check_errors and self.generator_selection_is_arbitrary(selection_before):
+                    try:
+                        self.send("FUNC:GEN:WAVE:STAT STOP")
+                    except Exception as exc:
+                        command_errors.append(f"FUNC:GEN:WAVE:STAT STOP: {exc}")
+
+                for command in ("OUTP OFF", "VOLT 0", "FUNC:GEN:SEL NONE"):
+                    try:
+                        self.send(command)
+                    except Exception as exc:
+                        command_errors.append(f"{command}: {exc}")
+
+                if settle_s:
+                    time.sleep(max(0.0, min(float(settle_s), max(0.0, deadline - time.monotonic()))))
+
+                # Surveillance adaptative : la sortie d'une alimentation peu chargée
+                # peut nécessiter plusieurs secondes pour descendre sous 0,200 V.
+                # Le délai total est partagé entre les tentatives afin de pouvoir
+                # réémettre une fois les commandes d'arrêt sans dépasser 5 s.
+                attempt_deadline = started + (total_timeout_s * attempt / max_attempts)
+                attempt_deadline = min(deadline, attempt_deadline)
+                while time.monotonic() <= attempt_deadline:
+                    result["poll_count"] += 1
+                    poll_errors = []
+                    try:
+                        result["generator_selection"] = self.generator_selection()
+                        result["generator_state"] = result["generator_selection"]
+                    except Exception as exc:
+                        poll_errors.append(f"sélection générateur finale: {exc}")
+                    try:
+                        result["output_state"] = self.output_state()
+                    except Exception as exc:
+                        poll_errors.append(f"état sortie: {exc}")
+                    try:
+                        result["measured_voltage_v"] = float(self.measured_voltage())
+                    except Exception as exc:
+                        poll_errors.append(f"tension sortie: {exc}")
+
+                    generator_ok = self.generator_selection_is_none(result["generator_selection"])
+                    output_ok = self.output_state_is_off(result["output_state"])
+                    voltage = result["measured_voltage_v"]
+                    voltage_ok = voltage is not None and abs(float(voltage)) <= abs(float(max_voltage_v))
+
+                    if generator_ok and output_ok and voltage_ok and not poll_errors:
+                        try:
+                            result["scpi_error"] = self.read_scpi_error()
+                        except Exception as exc:
+                            poll_errors.append(f"file SCPI: {exc}")
+                        scpi_ok = self.scpi_error_is_clear(result["scpi_error"])
+                        if scpi_ok and not poll_errors and not command_errors and not check_errors:
+                            result["confirmed"] = True
+                            result["errors"] = []
+                            result["confirmation_elapsed_s"] = time.monotonic() - started
+                            return result
+                        if not scpi_ok:
+                            poll_errors.append(
+                                f"file SCPI non claire: {result['scpi_error'] or 'réponse vide'}"
+                            )
+                            last_check_errors = check_errors + poll_errors
+                            break
+
+                    last_check_errors = check_errors + poll_errors
+                    if time.monotonic() >= attempt_deadline:
+                        break
+                    remaining = max(0.0, attempt_deadline - time.monotonic())
+                    time.sleep(min(max(0.01, float(poll_interval_s)), remaining))
+
+                last_command_errors = command_errors
+                if result["confirmed"] or time.monotonic() >= deadline:
+                    break
+
+            # Une dernière lecture de la file d'erreur complète le diagnostic si
+            # l'état sûr n'a pas été atteint avant le délai maximal.
+            if not result["scpi_error"]:
+                try:
+                    result["scpi_error"] = self.read_scpi_error()
+                except Exception as exc:
+                    last_check_errors.append(f"file SCPI finale: {exc}")
+
+            generator_ok = self.generator_selection_is_none(result["generator_selection"])
+            output_ok = self.output_state_is_off(result["output_state"])
+            voltage = result["measured_voltage_v"]
+            voltage_ok = voltage is not None and abs(float(voltage)) <= abs(float(max_voltage_v))
+            scpi_ok = self.scpi_error_is_clear(result["scpi_error"])
+            validation_errors = []
+            if not generator_ok:
+                validation_errors.append(
+                    f"mode générateur non quitté: {result['generator_selection'] or 'réponse vide'}"
+                )
+            if not output_ok:
+                validation_errors.append(
+                    f"sortie non coupée: {result['output_state'] or 'réponse vide'}"
+                )
+            if not voltage_ok:
+                voltage_text = "non relue" if voltage is None else f"{float(voltage):.3f} V"
+                validation_errors.append(
+                    f"tension résiduelle {voltage_text} > {abs(float(max_voltage_v)):.3f} V "
+                    f"après {total_timeout_s:.1f} s"
+                )
+            if not scpi_ok:
+                validation_errors.append(
+                    f"file SCPI non claire: {result['scpi_error'] or 'réponse vide'}"
+                )
+            result["errors"] = last_command_errors + last_check_errors + validation_errors
+            result["confirmation_elapsed_s"] = time.monotonic() - started
+            return result
+        finally:
+            if timeout_changed:
+                try:
+                    self.ser.timeout = old_timeout
+                except Exception:
+                    pass
+
 
 
 class SortableTableWidgetItem(QTableWidgetItem):
@@ -1167,7 +1596,7 @@ class IhmRelaisRp2040:
         self.comboBox_prod_operateur = self.get_widget(QComboBox, "comboBox_prod_operateur")
         self.dateEdit_prod_date = self.get_widget(QDateEdit, "dateEdit_prod_date")
         self.pushButton_prod_save_context = self.get_widget(QPushButton, "pushButton_prod_save_context")
-        self.pushButton_prod_reload_base = self.window.findChild(QPushButton, "pushButton_prod_reload_base")
+        self.pushButton_prod_reload_base = self.get_widget(QPushButton, "pushButton_prod_reload_base")
         self.pushButton_prod_export_pdf_lot = self.get_widget(QPushButton, "pushButton_prod_export_pdf_lot")
         self.lineEdit_prod_search_lot = self.get_widget(QLineEdit, "lineEdit_prod_search_lot")
         self.pushButton_prod_search_clear = self.get_widget(QPushButton, "pushButton_prod_search_clear")
@@ -1287,7 +1716,7 @@ class IhmRelaisRp2040:
         self.label_led_latch_contact_8 = self.get_widget(QLabel, "label_led_latch_contact_8")
         self.label_neutral_contact_summary = self.get_widget(QLabel, "label_neutral_contact_summary")
 
-        # Onglet Neutral Screen Automatique V2.12.2
+        # Onglet Neutral Screen Automatique V2.12.3
         self.pushButton_auto_neutral_marche = self.get_widget(QPushButton, "pushButton_auto_neutral_marche")
         self.pushButton_auto_neutral_arret = self.get_widget(QPushButton, "pushButton_auto_neutral_arret")
         self.lineEdit_auto_delai_ms = self.get_widget(QLineEdit, "lineEdit_auto_delai_ms")
@@ -1302,11 +1731,6 @@ class IhmRelaisRp2040:
         self.lineEdit_SN = self.get_widget(QLineEdit, "lineEdit_SN")
         self.label_auto_lot = self.window.findChild(QLabel, "label_LOT")
         self.label_auto_design_relais = self.window.findChild(QLabel, "label_design_relais")
-        self.pushButton_auto_fin_essai = self.window.findChild(QPushButton, "pushButton_auto_fin_essai")
-        if self.pushButton_auto_fin_essai is None:
-            self.pushButton_auto_fin_essai = QPushButton("TEST FINI", self.window)
-            self.pushButton_auto_fin_essai.setObjectName("pushButton_auto_fin_essai")
-            self.pushButton_auto_fin_essai.setVisible(False)
         self.pushButton_auto_lot_fini = self.get_widget(QPushButton, "pushButton_auto_lot_fini")
         self.tableWidget_auto_logigramme = self.get_widget(QTableWidget, "tableWidget_auto_logigramme")
         self.label_auto_tension_basse = self.get_widget(QLabel, "label_auto_tension_basse")
@@ -1323,7 +1747,7 @@ class IhmRelaisRp2040:
         self.label_auto_led_t3 = self.get_widget(QLabel, "label_auto_led_t3")
         self.label_auto_led_t4 = self.get_widget(QLabel, "label_auto_led_t4")
 
-        # Onglet Éditeur Scénarios Neutral Screen V2.12.2
+        # Onglet Éditeur Scénarios Neutral Screen V2.12.3
         self.comboBox_editor_scenarios = self.get_widget(QComboBox, "comboBox_editor_scenarios")
         self.lineEdit_editor_nom = self.get_widget(QLineEdit, "lineEdit_editor_nom")
         self.textEdit_editor_description = self.get_widget(QTextEdit, "textEdit_editor_description")
@@ -1364,7 +1788,7 @@ class IhmRelaisRp2040:
             "label_auto_step_reject",
         ]
         # Ancien logigramme fixe conservé uniquement pour compatibilité historique.
-        # En V2.12.2 le vrai affichage est tableWidget_auto_logigramme.
+        # En V2.12.3 le vrai affichage est tableWidget_auto_logigramme.
         self.auto_steps = {}
         for name in self.auto_step_names:
             w = self.window.findChild(QLabel, name)
@@ -1378,7 +1802,7 @@ class IhmRelaisRp2040:
         self.contacts_known_values = [None, None, None, None, None, None, None, None]
         self.contacts_force_refresh = False
 
-        # Automate Neutral Screen Automatique V2.12.2
+        # Automate Neutral Screen Automatique V2.12.3
         self.auto_neutral_running = False
         self.auto_neutral_attempt = 0
         self.auto_next_action = None
@@ -1394,14 +1818,14 @@ class IhmRelaisRp2040:
         self.flash_timer.timeout.connect(self.end_flash)
         self.flash_active = False
 
-        # Scénarios Neutral Screen V2.12.2
-        self.scenarios_data = {"version": "2.12.2", "scenarios": []}
+        # Scénarios Neutral Screen V2.12.3
+        self.scenarios_data = {"version": "2.12.3", "scenarios": []}
         self.current_runtime_steps = []
         self.current_runtime_scenario_name = ""
         self.runtime_step_index = 0
         self.runtime_attempt = 0
         self._refreshing_scenario_combos = False
-        self.production_data = {"version": "2.12.2", "last_context": {}, "records": [], "access_code": LOCK_ACCESS_CODE}
+        self.production_data = {"version": "2.12.3", "last_context": {}, "records": [], "access_code": LOCK_ACCESS_CODE}
         self.current_access_code = LOCK_ACCESS_CODE
         self._production_autofill_running = False
         self._auto_start_prompts_done = False
@@ -1611,7 +2035,19 @@ class IhmRelaisRp2040:
         self.doubleSpinBox_voltage_ramp_up_s = self.get_widget(QDoubleSpinBox, "doubleSpinBox_voltage_ramp_up_s")
         self.doubleSpinBox_voltage_ramp_down_s = self.get_widget(QDoubleSpinBox, "doubleSpinBox_voltage_ramp_down_s")
         self.doubleSpinBox_voltage_current_limit = self.get_widget(QDoubleSpinBox, "doubleSpinBox_voltage_current_limit")
+        self.doubleSpinBox_voltage_chrono_v = self.get_widget(QDoubleSpinBox, "doubleSpinBox_voltage_chrono_v")
         self.doubleSpinBox_voltage_interphase_s = self.get_widget(QDoubleSpinBox, "doubleSpinBox_voltage_interphase_s")
+        for spin in (
+            self.doubleSpinBox_voltage_vmax,
+            self.doubleSpinBox_voltage_ramp_up_s,
+            self.doubleSpinBox_voltage_ramp_down_s,
+            self.doubleSpinBox_voltage_current_limit,
+            self.doubleSpinBox_voltage_chrono_v,
+            self.doubleSpinBox_voltage_interphase_s,
+        ):
+            # La saisie clavier n'est validée qu'à la fin de l'édition. Cela évite
+            # qu'une valeur partiellement saisie soit corrigée vers l'ancienne valeur.
+            spin.setKeyboardTracking(False)
         self.label_voltage_interphase = self.get_widget(QLabel, "label_voltage_interphase")
         self.label_voltage_interphase_note = self.get_widget(QLabel, "label_voltage_interphase_note")
         self.label_voltage_ramp_up = self.get_widget(QLabel, "label_voltage_ramp_up")
@@ -1626,11 +2062,21 @@ class IhmRelaisRp2040:
         self.pushButton_voltage_pickup = self.get_widget(QPushButton, "pushButton_voltage_pickup")
         self.pushButton_voltage_dropout = self.get_widget(QPushButton, "pushButton_voltage_dropout")
         self.pushButton_voltage_cycle = self.get_widget(QPushButton, "pushButton_voltage_cycle")
+        self.pushButton_voltage_measure_all = self.get_widget(QPushButton, "pushButton_voltage_measure_all")
         self.pushButton_voltage_stop = self.get_widget(QPushButton, "pushButton_voltage_stop")
         self.pushButton_voltage_export_xlsx = self.get_widget(QPushButton, "pushButton_voltage_export_xlsx")
         self.pushButton_voltage_export_pdf = self.get_widget(QPushButton, "pushButton_voltage_export_pdf")
         self.label_voltage_live = self.get_widget(QLabel, "label_voltage_live")
         self.label_voltage_status = self.get_widget(QLabel, "label_voltage_status")
+        self.label_voltage_accuracy = self.get_widget(QLabel, "label_voltage_accuracy")
+        self.label_voltage_led_r1 = self.get_widget(QLabel, "label_voltage_led_r1")
+        self.label_voltage_led_r2 = self.get_widget(QLabel, "label_voltage_led_r2")
+        self.label_voltage_led_r3 = self.get_widget(QLabel, "label_voltage_led_r3")
+        self.label_voltage_led_r4 = self.get_widget(QLabel, "label_voltage_led_r4")
+        self.label_voltage_led_t1 = self.get_widget(QLabel, "label_voltage_led_t1")
+        self.label_voltage_led_t2 = self.get_widget(QLabel, "label_voltage_led_t2")
+        self.label_voltage_led_t3 = self.get_widget(QLabel, "label_voltage_led_t3")
+        self.label_voltage_led_t4 = self.get_widget(QLabel, "label_voltage_led_t4")
         self.tableWidget_voltage_results = self.get_widget(QTableWidget, "tableWidget_voltage_results")
 
         if not self.lineEdit_voltage_date.text().strip():
@@ -1654,6 +2100,10 @@ class IhmRelaisRp2040:
         self.voltage_capture_policy = ""
         self.voltage_effective_ramp_s = {"PICKUP": None, "DROPOUT": None}
         self.voltage_ramp_readbacks = {"PICKUP": {}, "DROPOUT": {}}
+        self.voltage_plausibility = {"PICKUP": {}, "DROPOUT": {}}
+        self.voltage_result_override = ""
+        self.voltage_ea_stop_confirmation = self.voltage_empty_stop_confirmation()
+        self.voltage_last_stop_diagnostic = ""
         self.voltage_last_adc_mv = None
         self.voltage_last_adc_raw = None
         self.voltage_ads_ok = False
@@ -1663,6 +2113,19 @@ class IhmRelaisRp2040:
         self.voltage_interphase_target_monotonic = None
         self.voltage_interphase_origin_monotonic = None
         self.voltage_interphase_actual_s = None
+        self.voltage_run_settings = {}
+        # Séquence R8 : l'EA réalise les rampes puis fournit automatiquement
+        # la tension continue de chronométrie. Aucun passage manuel EA/FIXE.
+        self.measure_all_active = False
+        self.measure_all_phase = ""
+        self.measure_all_context = {}
+        self.measure_all_chrono_results = {}
+        self.measure_all_static_confirmation = {}
+        self.chrono_external_supply_mode = False
+        self.rp2040_ea_chrono_capable = False
+        self.voltage_last_saved_result = ""
+        self._voltage_loading_measure_settings = False
+        self.voltage_measure_settings_file = runtime_output_dir() / "voltage_measure_settings.json"
         self.voltage_waiting_for_rp_arm = False
         self.voltage_timeout_timer = QTimer(self.window)
         self.voltage_timeout_timer.setSingleShot(True)
@@ -1676,11 +2139,17 @@ class IhmRelaisRp2040:
         self.voltage_progress_timer = QTimer(self.window)
         self.voltage_progress_timer.setInterval(100)
         self.voltage_progress_timer.timeout.connect(self.voltage_update_ramp_progress)
+        self.voltage_ea_monitor_timer = QTimer(self.window)
+        self.voltage_ea_monitor_timer.setInterval(750)
+        self.voltage_ea_monitor_timer.timeout.connect(self.voltage_check_generator_running)
         self.voltage_pending_ramp = None
         self.voltage_refresh_ea_ports()
         self.voltage_refresh_results_table()
+        self.voltage_refresh_contact_leds()
         self.voltage_init_db()
+        self.voltage_load_measure_settings()
         self.voltage_update_relay_type_ui()
+        self.voltage_update_ramp_limits()
 
     def create_voltage_calibration_tab(self):
         self.tab_voltage_calibration = self.get_widget(QWidget, "tab_voltage_calibration")
@@ -1774,7 +2243,7 @@ class IhmRelaisRp2040:
         self.label_db_admin_status.setAlignment(Qt.AlignCenter)
         self.label_db_admin_file.setText(str(self.production_db_file))
         if self.comboBox_db_target.count() == 0:
-            self.comboBox_db_target.addItems(["Neutral Screen automatique", "Chronométrie contacts"])
+            self.comboBox_db_target.addItems(["Neutral Screen automatique", "Chronométrie contacts + tensions"])
         self.tableWidget_db_operators.setColumnCount(2)
         self.tableWidget_db_operators.setHorizontalHeaderLabels(["Opérateur", "Créé le"])
         self.tableWidget_db_operators.setEditTriggers(QTableWidget.NoEditTriggers)
@@ -1793,19 +2262,14 @@ class IhmRelaisRp2040:
         self.tableWidget_db_lots.horizontalHeader().setStretchLastSection(True)
 
     def initialiser_validation_fin_essai(self):
-        self.pushButton_auto_fin_essai.setVisible(False)
+        # La validation opérateur est assurée exclusivement par la fenêtre modale TEST FINI.
         self.set_auto_finish_validation_state(False)
-        self.shortcut_auto_fin_essai_return = QShortcut(QKeySequence("Return"), self.window)
-        self.shortcut_auto_fin_essai_return.setContext(Qt.ApplicationShortcut)
-        self.shortcut_auto_fin_essai_return.activated.connect(self.auto_validate_end_of_test)
-        self.shortcut_auto_fin_essai_enter = QShortcut(QKeySequence("Enter"), self.window)
-        self.shortcut_auto_fin_essai_enter.setContext(Qt.ApplicationShortcut)
-        self.shortcut_auto_fin_essai_enter.activated.connect(self.auto_validate_end_of_test)
 
     def initialiser_aide_boutons_operateur(self):
         """Installe une aide explicite après 3 secondes d'immobilité sur chaque bouton."""
         aides = {
             "pushButton_prod_save_context": "Vérifie les informations de production, charge le prochain SN si le lot existe, enregistre le contexte puis ouvre Neutral Screen Automatique.",
+            "pushButton_prod_reload_base": "Relit la base Production depuis le disque puis actualise les tableaux Production et Gestion Base.",
             "pushButton_prod_export_pdf_lot": "Crée le rapport PDF du lot sélectionné dans l'historique Production. Le PDF contient le détail des relais testés et le résumé accepté/refusé.",
             "pushButton_prod_search_clear": "Efface le filtre de recherche lot et réaffiche l'ensemble des lots conservés dans la base.",
             "pushButton_rafraichir_ports_2": "Recherche à nouveau les ports COM disponibles pour retrouver le RP2040 si le câble USB vient d'être branché.",
@@ -1816,7 +2280,6 @@ class IhmRelaisRp2040:
             "pushButton_auto_scenario_recharger": "Recharge le fichier neutral_scenarios.json depuis le disque pour prendre en compte les scénarios modifiés.",
             "pushButton_auto_scenario_editer": "Ouvre l'onglet Editeur Scénario Neutral après déverrouillage, afin de modifier les scénarios de test.",
             "pushButton_auto_lot_fini": "Clôture obligatoirement le lot en cours. Tant que ce bouton n'est pas validé, l'opérateur ne peut pas préparer un autre lot.",
-            "pushButton_auto_fin_essai": "Valide la fin du test affiché. Le résultat du relais a déjà été enregistré ; ce bouton prépare le relais suivant.",
             "pushButton_neutral_be": "Mode manuel : envoie un pulse BE sur la sortie 1. À utiliser uniquement pour un contrôle manuel maîtrisé.",
             "pushButton_neutral_br": "Mode manuel : envoie un pulse BR sur la sortie 2. À utiliser uniquement pour un contrôle manuel maîtrisé.",
             "pushButton_neutral_bebr": "Mode manuel : envoie un pulse simultané BE/BR. C'est l'action manuelle correspondant à la recherche de position Neutral Screen.",
@@ -1838,8 +2301,8 @@ class IhmRelaisRp2040:
             "pushButton_db_restore": "Remplace la base active par une sauvegarde SQLite sélectionnée, avec sauvegarde de sécurité avant remplacement.",
             "pushButton_db_export_csv": "Exporte tous les essais enregistrés dans un fichier CSV lisible avec un tableur.",
             "pushButton_db_vacuum": "Optimise la base SQLite : nettoyage du journal, compactage du fichier et analyse des index.",
-            "pushButton_db_export_xlsx": "Exporte en XLSX le contenu de la base actuellement sélectionnée : Production ou Chronométrie contacts.",
-            "pushButton_db_export_pdf": "Exporte en PDF le contenu de la base actuellement sélectionnée : Production ou Chronométrie contacts.",
+            "pushButton_db_export_xlsx": "Exporte en XLSX le contenu de la base actuellement sélectionnée : Production ou Chronométrie contacts + tensions.",
+            "pushButton_db_export_pdf": "Exporte en PDF le contenu de la base actuellement sélectionnée : Production ou Chronométrie contacts + tensions.",
             "pushButton_db_recreate_default": "Crée une base SQLite neuve et vide. Une sauvegarde de l'ancien fichier est faite si possible avant remplacement.",
             "pushButton_db_merge": "Importe les essais et opérateurs manquants depuis une autre base SQLite sans écraser la base active.",
             "pushButton_db_operator_add": "Ajoute l'opérateur saisi à la liste proposée dans l'onglet Production.",
@@ -1848,9 +2311,10 @@ class IhmRelaisRp2040:
             "pushButton_db_lot_pdf": "Crée le PDF du lot sélectionné depuis la base actuellement sélectionnée.",
             "pushButton_db_lot_xlsx": "Crée le XLSX du lot sélectionné depuis la base actuellement sélectionnée.",
             "pushButton_db_lot_delete": "Supprime définitivement le lot sélectionné et tous les relais associés après confirmation. Une sauvegarde de sécurité est faite avant suppression.",
-            "pushButton_chrono_export_xlsx_lot": "Exporte en XLSX toutes les mesures chronométrie enregistrées pour le lot saisi dans l'onglet Mesures.",
-            "pushButton_chrono_export_pdf_lot": "Crée un rapport PDF de toutes les mesures chronométrie enregistrées pour le lot saisi dans l'onglet Mesures.",
+            "pushButton_chrono_export_xlsx_lot": "Exporte en XLSX les mesures de chronométrie et de tension enregistrées pour le lot saisi.",
+            "pushButton_chrono_export_pdf_lot": "Crée un rapport PDF regroupant chronométrie et tensions pour le lot saisi.",
             "pushButton_voltage_open_calibration": "Ouvre l'onglet d'étalonnage ADS1115. Une calibration valide est obligatoire avant toute mesure officielle de tension.",
+            "pushButton_voltage_measure_all": "Lance les rampes de tension puis règle automatiquement l'EA à la tension fixe de chronométrie. Aucun changement manuel de source. Les réglages de capture, pulse et sanctions proviennent de l'onglet Chronométrie contacts.",
             "pushButton_calibration_request_ads": "Demande une lecture fraîche du RAW ADS1115 au RP2040.",
             "pushButton_calibration_capture_low": "Capture le RAW ADS1115 au point bas. Saisir la valeur réellement lue au multimètre, pas la consigne EA.",
             "pushButton_calibration_capture_high": "Capture le RAW ADS1115 au point haut, idéalement vers 30 V.",
@@ -2508,91 +2972,64 @@ class IhmRelaisRp2040:
     def chrono_database_admin_refresh(self):
         search = self.lineEdit_db_lot_filter.text().strip() if hasattr(self, "lineEdit_db_lot_filter") else ""
         try:
-            self.chrono_init_db()
+            self.voltage_init_db()
             db_size = self.chrono_db_file.stat().st_size if self.chrono_db_file.exists() else 0
             params = []
             where = ""
             if search:
-                where = """
-                WHERE lot LIKE ? OR relais LIKE ? OR nom_test LIKE ? OR sn LIKE ?
-                """
+                where = "WHERE lot LIKE ? OR relais LIKE ? OR nom_test LIKE ? OR sn LIKE ?"
                 params = [f"%{search}%", f"%{search}%", f"%{search}%", f"%{search}%"]
             with self.chrono_connect_db() as con:
-                rows = con.execute(
-                    f"""
-                    SELECT
-                        lot,
-                        relais,
-                        nom_test,
-                        COUNT(*) AS nb_mesures,
-                        COUNT(DISTINCT sn) AS nb_sn,
-                        SUM(CASE WHEN resultat = 'OK' THEN 1 ELSE 0 END) AS nb_ok,
-                        SUM(CASE WHEN resultat <> 'OK' THEN 1 ELSE 0 END) AS nb_defauts,
-                        MAX(timestamp) AS derniere_mesure,
-                        MAX(relay_type) AS relay_type
-                    FROM mesures_chrono_contacts
-                    {where}
+                rows = con.execute(f"""
+                    WITH toutes AS (
+                        SELECT 'CHRONO' AS source, lot, relais, nom_test, sn, resultat, timestamp, relay_type
+                        FROM mesures_chrono_contacts
+                        UNION ALL
+                        SELECT 'TENSION' AS source, lot, relais, nom_test, sn, resultat, timestamp, relay_type
+                        FROM mesures_tension_fonctionnement
+                    )
+                    SELECT lot, relais, nom_test,
+                           COUNT(DISTINCT sn) AS nb_sn,
+                           SUM(CASE WHEN source='CHRONO' THEN 1 ELSE 0 END) AS nb_chrono,
+                           SUM(CASE WHEN source='TENSION' THEN 1 ELSE 0 END) AS nb_tensions,
+                           COUNT(*) AS nb_total,
+                           SUM(CASE WHEN resultat='OK' THEN 1 ELSE 0 END) AS nb_ok,
+                           SUM(CASE WHEN resultat<>'OK' THEN 1 ELSE 0 END) AS nb_defauts,
+                           MAX(timestamp) AS derniere_mesure,
+                           MAX(relay_type) AS relay_type
+                    FROM toutes {where}
                     GROUP BY lot, relais, nom_test
                     ORDER BY derniere_mesure DESC, lot COLLATE NOCASE ASC
-                    """,
-                    params,
-                ).fetchall()
-                nb_total = con.execute("SELECT COUNT(*) AS n FROM mesures_chrono_contacts").fetchone()["n"]
+                """, params).fetchall()
+                nb_chrono = con.execute("SELECT COUNT(*) AS n FROM mesures_chrono_contacts").fetchone()["n"]
+                nb_tension = con.execute("SELECT COUNT(*) AS n FROM mesures_tension_fonctionnement").fetchone()["n"]
             self.label_db_admin_file.setText(str(self.chrono_db_file))
             suffix = f" - filtre : {search}" if search else ""
             self.label_db_admin_status.setText(
-                f"Base chronométrie OK - {nb_total} mesure(s) enregistrée(s) - {len(rows)} groupe(s) affiché(s){suffix} - {db_size / 1024:.1f} Ko"
+                f"Base chronométrie + tensions OK - {nb_chrono} chrono - {nb_tension} tension(s) - {len(rows)} groupe(s){suffix} - {db_size / 1024:.1f} Ko"
             )
-            self.label_db_admin_status.setStyleSheet(
-                "background-color: rgb(220,245,255); border: 2px solid rgb(70,130,180); padding: 8px; font-size: 11pt; font-weight: bold;"
-            )
+            self.label_db_admin_status.setStyleSheet("background-color: rgb(220,245,255); border: 2px solid rgb(70,130,180); padding: 8px; font-size: 11pt; font-weight: bold;")
             table = self.tableWidget_db_lots
             table.setSortingEnabled(False)
-            table.setColumnCount(9)
-            table.setHorizontalHeaderLabels(["Lot", "Relais", "Nom test", "SN", "Mesures", "OK", "Défauts", "Dernière mesure", "Type"])
+            table.setColumnCount(11)
+            table.setHorizontalHeaderLabels(["Lot", "Relais", "Nom test", "SN", "Chrono", "Tensions", "Total", "OK", "Défauts", "Dernière mesure", "Type"])
             table.setRowCount(len(rows))
             for row_index, record in enumerate(rows):
                 lot_raw = str(record["lot"] or "")
-                relais = str(record["relais"] or "")
-                nom_test = str(record["nom_test"] or "")
-                vals = [
-                    lot_raw,
-                    relais,
-                    nom_test,
-                    int(record["nb_sn"] or 0),
-                    int(record["nb_mesures"] or 0),
-                    int(record["nb_ok"] or 0),
-                    int(record["nb_defauts"] or 0),
-                    self.format_datetime_fr(record["derniere_mesure"]),
-                    str(record["relay_type"] or ""),
-                ]
-                sorts = [
-                    lot_raw.lower(),
-                    relais.lower(),
-                    nom_test.lower(),
-                    int(record["nb_sn"] or 0),
-                    int(record["nb_mesures"] or 0),
-                    int(record["nb_ok"] or 0),
-                    int(record["nb_defauts"] or 0),
-                    str(record["derniere_mesure"] or ""),
-                    str(record["relay_type"] or "").lower(),
-                ]
-                for col, (val, sort_value) in enumerate(zip(vals, sorts)):
-                    item = self.table_item_sort(val, sort_value)
+                vals = [lot_raw, str(record["relais"] or ""), str(record["nom_test"] or ""), int(record["nb_sn"] or 0), int(record["nb_chrono"] or 0), int(record["nb_tensions"] or 0), int(record["nb_total"] or 0), int(record["nb_ok"] or 0), int(record["nb_defauts"] or 0), self.format_datetime_fr(record["derniere_mesure"]), str(record["relay_type"] or "")]
+                for col, val in enumerate(vals):
+                    item = self.table_item_sort(val, val)
                     if col == 0:
                         item.setData(Qt.UserRole + 1, lot_raw)
-                        item.setData(Qt.UserRole + 2, relais)
-                        item.setData(Qt.UserRole + 3, nom_test)
+                        item.setData(Qt.UserRole + 2, str(record["relais"] or ""))
+                        item.setData(Qt.UserRole + 3, str(record["nom_test"] or ""))
                     table.setItem(row_index, col, item)
             table.setSortingEnabled(True)
-            for col, width in enumerate([80, 80, 110, 45, 70, 45, 65, 120, 75]):
+            for col, width in enumerate([80, 110, 135, 45, 60, 65, 55, 50, 60, 125, 85]):
                 table.setColumnWidth(col, width)
         except Exception as exc:
-            self.label_db_admin_file.setText(str(self.chrono_db_file))
-            self.label_db_admin_status.setText(f"Base chronométrie non lisible : {exc}")
-            self.label_db_admin_status.setStyleSheet(
-                "background-color: rgb(255,225,225); border: 2px solid rgb(180,40,40); padding: 8px; font-size: 11pt; font-weight: bold;"
-            )
+            self.label_db_admin_status.setText(f"Base non lisible : {exc}")
+            self.label_db_admin_status.setStyleSheet("background-color: rgb(255,225,225); border: 2px solid rgb(180,40,40); padding: 8px; font-size: 11pt; font-weight: bold;")
 
     def database_add_operator(self):
         name = self.lineEdit_db_operator.text().strip()
@@ -2773,73 +3210,92 @@ class IhmRelaisRp2040:
             if not self.database_external_has_table(con, expected_table):
                 raise RuntimeError(f"table {expected_table} absente")
 
+    def chrono_database_combined_rows(self):
+        self.voltage_init_db()
+        rows = []
+        with self.chrono_connect_db() as con:
+            chrono = con.execute("""
+                SELECT lot, date_test, relais, ambiance_c, nom_test, sn, relay_type,
+                       action, nb_inverseurs, capture_ms, pulse_ms, limite_temps_ms,
+                       limite_rebond_ms, resultat, overflow, details_json, events_json, timestamp
+                FROM mesures_chrono_contacts
+            """).fetchall()
+            voltages = con.execute("""
+                SELECT lot, date_test, relais, ambiance_c, nom_test, sn, relay_type,
+                       nb_inverseurs, pickup_global_v, dropout_global_v, pickup_json,
+                       dropout_json, pickup_plausibility_status, dropout_plausibility_status,
+                       ea_stop_confirmed, ea_final_voltage_v, resultat, timestamp
+                FROM mesures_tension_fonctionnement
+            """).fetchall()
+        for r in chrono:
+            rows.append({
+                "source":"CHRONO", "lot":r["lot"], "date_test":r["date_test"], "relais":r["relais"],
+                "ambiance_c":r["ambiance_c"], "nom_test":r["nom_test"], "sn":r["sn"], "relay_type":r["relay_type"],
+                "action":r["action"], "nb_inverseurs":r["nb_inverseurs"], "capture_ms":r["capture_ms"], "pulse_ms":r["pulse_ms"],
+                "limite_temps_ms":r["limite_temps_ms"], "limite_rebond_ms":r["limite_rebond_ms"],
+                "tension_be_v":None, "tension_br_v":None,
+                "tension_be_i1_v":None, "tension_be_i2_v":None, "tension_be_i3_v":None, "tension_be_i4_v":None,
+                "tension_br_i1_v":None, "tension_br_i2_v":None, "tension_br_i3_v":None, "tension_br_i4_v":None,
+                "plausibilite_be":"", "plausibilite_br":"",
+                "arret_ea_confirme":"", "tension_ea_finale_v":None, "resultat":r["resultat"], "overflow":r["overflow"],
+                "details_json":r["details_json"], "events_json":r["events_json"], "timestamp":r["timestamp"],
+            })
+        for r in voltages:
+            pickup = self.chrono_json_dict(r["pickup_json"])
+            dropout = self.chrono_json_dict(r["dropout_json"])
+            details=json.dumps({"pickup":pickup,"dropout":dropout}, ensure_ascii=False)
+            stop=int(r["ea_stop_confirmed"] if r["ea_stop_confirmed"] is not None else -1)
+            rows.append({
+                "source":"TENSION", "lot":r["lot"], "date_test":r["date_test"], "relais":r["relais"],
+                "ambiance_c":r["ambiance_c"], "nom_test":r["nom_test"], "sn":r["sn"], "relay_type":r["relay_type"],
+                "action":"BE/BR", "nb_inverseurs":r["nb_inverseurs"], "capture_ms":None, "pulse_ms":None,
+                "limite_temps_ms":None, "limite_rebond_ms":None,
+                "tension_be_v":r["pickup_global_v"], "tension_br_v":r["dropout_global_v"],
+                "tension_be_i1_v":pickup.get("1"), "tension_be_i2_v":pickup.get("2"), "tension_be_i3_v":pickup.get("3"), "tension_be_i4_v":pickup.get("4"),
+                "tension_br_i1_v":dropout.get("1"), "tension_br_i2_v":dropout.get("2"), "tension_br_i3_v":dropout.get("3"), "tension_br_i4_v":dropout.get("4"),
+                "plausibilite_be":r["pickup_plausibility_status"], "plausibilite_br":r["dropout_plausibility_status"],
+                "arret_ea_confirme":"OUI" if stop==1 else "NON" if stop==0 else "NON VÉRIFIÉ",
+                "tension_ea_finale_v":r["ea_final_voltage_v"], "resultat":r["resultat"], "overflow":None,
+                "details_json":details, "events_json":"", "timestamp":r["timestamp"],
+            })
+        rows.sort(key=lambda r:(str(r["lot"] or "").lower(), str(r["timestamp"] or ""), str(r["sn"] or "")))
+        return rows
+
     def chrono_database_export_csv(self):
-        path = self.ask_export_path(
-            "Exporter les mesures chronométrie en CSV",
-            f"chronometrie_contacts_{time.strftime('%Y%m%d_%H%M')}.csv",
-            "CSV (*.csv);;Tous les fichiers (*)",
-            ".csv",
-        )
+        path = self.ask_export_path("Exporter chronométrie et tensions en CSV", f"chronometrie_et_tensions_{time.strftime('%Y%m%d_%H%M')}.csv", "CSV (*.csv);;Tous les fichiers (*)", ".csv")
         if not path:
             return
-        headers = [
-            "lot", "date_test", "relais", "ambiance_c", "nom_test", "sn",
-            "relay_type", "action", "nb_inverseurs", "capture_ms", "pulse_ms",
-            "limite_temps_ms", "limite_rebond_ms", "resultat", "overflow",
-            "details_json", "events_json", "timestamp",
-        ]
+        headers=["source","lot","date_test","relais","ambiance_c","nom_test","sn","relay_type","action","nb_inverseurs","capture_ms","pulse_ms","limite_temps_ms","limite_rebond_ms","tension_be_v","tension_br_v","tension_be_i1_v","tension_be_i2_v","tension_be_i3_v","tension_be_i4_v","tension_br_i1_v","tension_br_i2_v","tension_br_i3_v","tension_br_i4_v","plausibilite_be","plausibilite_br","arret_ea_confirme","tension_ea_finale_v","resultat","overflow","details_json","events_json","timestamp"]
         try:
-            self.chrono_init_db()
-            with self.chrono_connect_db() as con:
-                rows = con.execute(
-                    """
-                    SELECT lot, date_test, relais, ambiance_c, nom_test, sn,
-                           relay_type, action, nb_inverseurs, capture_ms, pulse_ms,
-                           limite_temps_ms, limite_rebond_ms, resultat, overflow,
-                           details_json, events_json, timestamp
-                    FROM mesures_chrono_contacts
-                    ORDER BY lot COLLATE NOCASE ASC, timestamp ASC, id ASC
-                    """
-                ).fetchall()
-            with open(path, "w", encoding="utf-8-sig", newline="") as f:
-                writer = csv.writer(f, delimiter=";")
-                writer.writerow(headers)
-                for row in rows:
-                    writer.writerow([row[h] for h in headers])
-            QMessageBox.information(self.window, "Export CSV", f"Export chronométrie créé :\n{path}")
+            rows=self.chrono_database_combined_rows()
+            with open(path,"w",encoding="utf-8-sig",newline="") as f:
+                writer=csv.writer(f,delimiter=";"); writer.writerow(headers)
+                for row in rows: writer.writerow([row[h] for h in headers])
+            QMessageBox.information(self.window,"Export CSV",f"Export chronométrie + tensions créé :\n{path}")
         except Exception as exc:
-            QMessageBox.warning(self.window, "Export CSV", f"Export chronométrie impossible : {exc}")
+            QMessageBox.warning(self.window,"Export CSV",f"Export impossible : {exc}")
 
     def database_admin_export_dataset(self):
         if self.database_admin_is_chrono():
             headers = [
-                ("lot", "Lot"), ("date_test", "Date test"), ("relais", "Relais"),
-                ("ambiance_c", "Ambiance °C"), ("nom_test", "Nom test"), ("sn", "SN"),
-                ("relay_type", "Type"), ("action", "Action"), ("nb_inverseurs", "Inv."),
-                ("capture_ms", "Capture ms"), ("pulse_ms", "Pulse ms"),
-                ("limite_temps_ms", "Limite temps"), ("limite_rebond_ms", "Limite rebond"),
-                ("resultat", "Résultat"), ("overflow", "Overflow"),
-                ("details_json", "Détails JSON"), ("events_json", "Événements JSON"),
-                ("timestamp", "Horodatage"),
+                ("source","Source"),("lot","Lot"),("date_test","Date test"),("relais","Relais"),
+                ("ambiance_c","Ambiance °C"),("nom_test","Nom test"),("sn","SN"),("relay_type","Type"),
+                ("action","Action"),("nb_inverseurs","Inv."),("capture_ms","Capture ms"),("pulse_ms","Pulse ms"),
+                ("limite_temps_ms","Limite temps"),("limite_rebond_ms","Limite rebond"),
+                ("tension_be_v","Tension collage/BE globale V"),("tension_br_v","Tension décollage/BR globale V"),
+                ("tension_be_i1_v","BE I1 V"),("tension_be_i2_v","BE I2 V"),("tension_be_i3_v","BE I3 V"),("tension_be_i4_v","BE I4 V"),
+                ("tension_br_i1_v","BR I1 V"),("tension_br_i2_v","BR I2 V"),("tension_br_i3_v","BR I3 V"),("tension_br_i4_v","BR I4 V"),
+                ("plausibilite_be","Plausibilité BE"),("plausibilite_br","Plausibilité BR"),
+                ("arret_ea_confirme","Arrêt EA confirmé"),("tension_ea_finale_v","Tension EA finale V"),
+                ("resultat","Résultat"),("overflow","Overflow"),("details_json","Détails JSON"),
+                ("events_json","Événements JSON"),("timestamp","Horodatage"),
             ]
             pdf_headers = [
-                ("lot", "Lot"), ("date_test", "Date"), ("relais", "Relais"),
-                ("nom_test", "Test"), ("sn", "SN"), ("relay_type", "Type"),
-                ("action", "Action"), ("nb_inverseurs", "Inv."), ("resultat", "Résultat"),
+                ("source","Source"),("lot","Lot"),("date_test","Date"),("relais","Relais"),
+                ("nom_test","Test"),("sn","SN"),("relay_type","Type"),("action","Action"),
+                ("tension_be_v","BE V"),("tension_br_v","BR V"),("resultat","Résultat"),
             ]
-            self.chrono_init_db()
-            with self.chrono_connect_db() as con:
-                rows = con.execute(
-                    """
-                    SELECT lot, date_test, relais, ambiance_c, nom_test, sn,
-                           relay_type, action, nb_inverseurs, capture_ms, pulse_ms,
-                           limite_temps_ms, limite_rebond_ms, resultat, overflow,
-                           details_json, events_json, timestamp
-                    FROM mesures_chrono_contacts
-                    ORDER BY lot COLLATE NOCASE ASC, timestamp ASC, id ASC
-                    """
-                ).fetchall()
-            return "chronometrie_contacts", "Base Chronométrie contacts", headers, pdf_headers, rows
+            return "chronometrie_et_tensions", "Base Chronométrie contacts et tensions", headers, pdf_headers, self.chrono_database_combined_rows()
 
         headers = [
             ("lot", "Lot"), ("sn", "SN"), ("designation", "Désignation"),
@@ -3016,6 +3472,8 @@ class IhmRelaisRp2040:
     def write_table_pdf(self, path, title, headers, rows):
         writer = QPdfWriter(path)
         writer.setPageSize(QPageSize(QPageSize.A4))
+        if len(headers) > 9:
+            writer.setPageOrientation(QPageLayout.Landscape)
         writer.setResolution(96)
         painter = QPainter(writer)
         if not painter.isActive():
@@ -3023,13 +3481,14 @@ class IhmRelaisRp2040:
         try:
             page_w = writer.width()
             page_h = writer.height()
-            margin = 34
+            margin = 28 if len(headers) > 9 else 34
             y = margin
-            line_h = 16
-            normal = QFont("Arial", 7)
-            bold = QFont("Arial", 8)
+            dense_table = len(headers) > 9
+            line_h = 13 if dense_table else 16
+            normal = QFont("Arial", 5 if dense_table else 7)
+            bold = QFont("Arial", 6 if dense_table else 8)
             bold.setBold(True)
-            title_font = QFont("Arial", 14)
+            title_font = QFont("Arial", 12 if dense_table else 14)
             title_font.setBold(True)
 
             def new_page():
@@ -3046,9 +3505,13 @@ class IhmRelaisRp2040:
                 painter.drawText(int(x), int(yy), text)
 
             available = page_w - margin * 2
-            widths = [70, 60, 110, 80, 55, 80, 80, 42, 65][:len(headers)]
-            total = sum(widths) or 1
-            widths = [int(w * available / total) for w in widths]
+            # Une largeur est calculée pour chaque colonne. L'ancienne liste fixe
+            # de neuf largeurs tronquait silencieusement les colonnes suivantes.
+            weights = [max(5, min(22, len(str(label)) + 2)) for _key, label in headers]
+            total = sum(weights) or 1
+            widths = [max(20, int(weight * available / total)) for weight in weights]
+            if widths:
+                widths[-1] += available - sum(widths)
             x_positions = [margin]
             for width in widths[:-1]:
                 x_positions.append(x_positions[-1] + width)
@@ -3213,14 +3676,18 @@ class IhmRelaisRp2040:
             return str(value)
 
     def chrono_export_metric_order(self):
+        """Ordre officiel des temps dans les rapports opérateur.
+
+        Les rebonds d'ouverture restent enregistrés en base et disponibles dans
+        l'oscillogramme, mais ne figurent pas dans les deux feuilles de synthèse
+        demandées par l'utilisateur.
+        """
         return [
             "enclenchement",
             "transfert_travail",
-            "rebond_repos_ouverture",
             "rebond_travail",
             "declenchement",
             "transfert_repos",
-            "rebond_travail_ouverture",
             "rebond_repos",
         ]
 
@@ -3228,11 +3695,9 @@ class IhmRelaisRp2040:
         labels = {
             "enclenchement": "Temps d'Enclenchement {inv} (ms)",
             "transfert_travail": "Temps de transfère {inv} (ms)",
-            "rebond_repos_ouverture": "Temps Rebond Repos Ouverture {inv} (ms)",
             "rebond_travail": "Temps Rebond Travail Fermeture {inv} (ms)",
             "declenchement": "Temps de Déclenchement {inv} (ms)",
             "transfert_repos": "Temps de transfère {inv} retour (ms)",
-            "rebond_travail_ouverture": "Temps Rebond Travail Ouverture {inv} (ms)",
             "rebond_repos": "Temps Rebond Repos Fermeture {inv} (ms)",
         }
         return labels.get(metric, str(metric)).format(inv=inv)
@@ -3256,7 +3721,8 @@ class IhmRelaisRp2040:
             int(record["nb_inverseurs"] or 0),
         )
 
-    def chrono_export_measure_cards(self, records):
+    def chrono_export_group_data(self, records):
+        """Regroupe BE/BR ou enclenchement/déclenchement par lot/relais/SN."""
         groups = {}
         for record in records:
             key = self.chrono_export_group_key(record)
@@ -3280,40 +3746,207 @@ class IhmRelaisRp2040:
                 if not isinstance(item, dict):
                     continue
                 metric = str(item.get("metric", "") or "")
-                if not metric:
+                if metric not in self.chrono_export_metric_order():
                     continue
-                inv = int(item.get("inverseur") or 0)
+                try:
+                    inv = int(item.get("inverseur") or 0)
+                except Exception:
+                    inv = 0
                 if inv < 1:
                     continue
                 group["metrics"][(inv, metric)] = {
                     "value": item.get("temps_ms"),
                     "sanction": self.chrono_export_sanction_for_metric(metric, record),
                 }
+        return list(groups.values())
 
-        cards = []
-        for group in groups.values():
-            record = group["record"]
-            relay_type = str(record["relay_type"] or self.chrono_relay_type()).upper()
-            result = "DEFAUT" if any(value == "DEFAUT" for value in group["resultats"]) else "OK"
-            rows = [
-                ["Lot", "", record["lot"]],
-                ["Date du test", "", record["date_test"]],
-                ["Relais", "", record["relais"]],
-                ["Ambiance", "", record["ambiance_c"]],
-                ["Nom du Test", "", record["nom_test"]],
-                ["Numéro de Relais", "", record["sn"]],
-                ["Résultat du test", "", result],
+    def chrono_export_find_voltage(self, chrono_record, voltage_records, used_voltage_ids):
+        """Choisit la mesure tension la plus récente correspondant au même essai."""
+        candidates = []
+        for voltage in voltage_records:
+            vid = int(voltage["id"] or 0)
+            if vid in used_voltage_ids:
+                continue
+            if str(voltage["lot"] or "") != str(chrono_record["lot"] or ""):
+                continue
+            if str(voltage["sn"] or "") != str(chrono_record["sn"] or ""):
+                continue
+            vr = str(voltage["relais"] or "").strip()
+            cr = str(chrono_record["relais"] or "").strip()
+            if vr and cr and vr != cr:
+                continue
+            exact_test = int(
+                bool(str(voltage["nom_test"] or "").strip())
+                and str(voltage["nom_test"] or "").strip() == str(chrono_record["nom_test"] or "").strip()
+            )
+            candidates.append((exact_test, str(voltage["timestamp"] or ""), vid, voltage))
+        if not candidates:
+            return None
+        candidates.sort(key=lambda item: (item[0], item[1], item[2]))
+        selected = candidates[-1][3]
+        used_voltage_ids.add(int(selected["id"] or 0))
+        return selected
+
+    def chrono_export_base_rows(self, record, chrono_result, voltage_result):
+        return [
+            ["Lot", "", record["lot"]],
+            ["Date du test", "", record["date_test"]],
+            ["Relais", "", record["relais"]],
+            ["Ambiance", "", record["ambiance_c"]],
+            ["Nom du Test", "", record["nom_test"]],
+            ["Numéro de Relais", "", record["sn"]],
+            ["Résultat chronométrie", "", chrono_result],
+            ["Résultat tensions", "", voltage_result],
+        ]
+
+    def chrono_export_time_rows(self, metrics, nb_inverseurs):
+        rows = []
+        for inv in range(1, max(1, min(4, int(nb_inverseurs or 1))) + 1):
+            for metric in self.chrono_export_metric_order():
+                data = metrics.get((inv, metric), {})
+                rows.append([
+                    self.chrono_export_metric_label(metric, inv),
+                    data.get("sanction", ""),
+                    self.chrono_export_value_ms(data.get("value")),
+                ])
+        return rows
+
+    def chrono_export_global_voltage_rows(self, voltage, detailed=False):
+        if detailed:
+            pickup_label = "Tension d'Enclenchement (globale)"
+            dropout_label = "Tension de Rappel (globale)"
+        else:
+            pickup_label = "Tension d'Enclenchement"
+            dropout_label = "Tension de Rappel"
+        if voltage is None:
+            return [
+                [pickup_label, "", "--"],
+                [dropout_label, "", "--"],
             ]
-            for inv in range(1, max(1, min(4, int(group["nb_inverseurs"]))) + 1):
-                for metric in self.chrono_export_metric_order():
-                    data = group["metrics"].get((inv, metric), {})
-                    rows.append([
-                        self.chrono_export_metric_label(metric, inv),
-                        data.get("sanction", ""),
-                        self.chrono_export_value_ms(data.get("value")),
-                    ])
-            cards.append(rows)
-        return cards
+        return [
+            [
+                pickup_label,
+                str(voltage["pickup_plausibility_status"] or ""),
+                self.chrono_export_voltage_value(voltage["pickup_global_v"]),
+            ],
+            [
+                dropout_label,
+                str(voltage["dropout_plausibility_status"] or ""),
+                self.chrono_export_voltage_value(voltage["dropout_global_v"]),
+            ],
+        ]
+
+    def chrono_export_individual_voltage_rows(self, voltage, nb_inverseurs):
+        pickup = self.chrono_json_dict(voltage["pickup_json"]) if voltage is not None else {}
+        dropout = self.chrono_json_dict(voltage["dropout_json"]) if voltage is not None else {}
+        rows = []
+        for inv in range(1, max(1, min(4, int(nb_inverseurs or 1))) + 1):
+            p = pickup.get(str(inv), pickup.get(inv))
+            d = dropout.get(str(inv), dropout.get(inv))
+            rows.append([
+                f"Tension d'Enclenchement inverseur {inv}",
+                "",
+                self.chrono_export_voltage_value(p),
+            ])
+            rows.append([
+                f"Tension de Rappel inverseur {inv}",
+                "",
+                self.chrono_export_voltage_value(d),
+            ])
+        return rows
+
+    def chrono_export_measure_sheets(self, records, voltage_records=None):
+        """Construit les deux feuilles officielles demandées pour chaque SN."""
+        voltage_records = list(voltage_records or [])
+        used_voltage_ids = set()
+        summary_cards = []
+        detail_cards = []
+
+        for group in self.chrono_export_group_data(records):
+            record = group["record"]
+            chrono_result = "DEFAUT" if any(v == "DEFAUT" for v in group["resultats"]) else "OK"
+            voltage = self.chrono_export_find_voltage(record, voltage_records, used_voltage_ids)
+            voltage_result = str(voltage["resultat"] or "") if voltage is not None else "Aucune mesure tension associée"
+            nb = max(group["nb_inverseurs"], int(voltage["nb_inverseurs"] or 1) if voltage is not None else 1)
+            base_rows = self.chrono_export_base_rows(record, chrono_result, voltage_result)
+            time_rows = self.chrono_export_time_rows(group["metrics"], nb)
+            summary_cards.append(
+                base_rows
+                + self.chrono_export_global_voltage_rows(voltage, detailed=False)
+                + time_rows
+            )
+            detail_cards.append(
+                base_rows
+                + self.chrono_export_global_voltage_rows(voltage, detailed=True)
+                + self.chrono_export_individual_voltage_rows(voltage, nb)
+                + time_rows
+            )
+
+        # Une tension peut exister sans chronométrie : elle reste visible et les
+        # temps sont explicitement notés "--" au lieu de disparaître du rapport.
+        for voltage in voltage_records:
+            vid = int(voltage["id"] or 0)
+            if vid in used_voltage_ids:
+                continue
+            pseudo = voltage
+            nb = max(1, min(4, int(voltage["nb_inverseurs"] or 1)))
+            base_rows = self.chrono_export_base_rows(
+                pseudo,
+                "Aucune mesure chronométrie associée",
+                str(voltage["resultat"] or ""),
+            )
+            time_rows = self.chrono_export_time_rows({}, nb)
+            summary_cards.append(
+                base_rows
+                + self.chrono_export_global_voltage_rows(voltage, detailed=False)
+                + time_rows
+            )
+            detail_cards.append(
+                base_rows
+                + self.chrono_export_global_voltage_rows(voltage, detailed=True)
+                + self.chrono_export_individual_voltage_rows(voltage, nb)
+                + time_rows
+            )
+        return summary_cards, detail_cards
+
+    def chrono_export_measure_cards(self, records, voltage_records=None):
+        """Compatibilité historique : renvoie la première feuille uniquement."""
+        summary_cards, _detail_cards = self.chrono_export_measure_sheets(records, voltage_records)
+        return summary_cards
+
+    def chrono_export_voltage_value(self, value):
+        if value is None or value == "":
+            return "--"
+        try:
+            return f"{float(value):.3f}"
+        except Exception:
+            return str(value)
+
+    def chrono_export_voltage_rows(self, record):
+        pickup = self.chrono_json_dict(record["pickup_json"])
+        dropout = self.chrono_json_dict(record["dropout_json"])
+        rows = [
+            ["MESURES DE TENSION", "", ""],
+            ["Horodatage tension", "", self.format_datetime_fr(record["timestamp"]) or record["timestamp"]],
+            ["Résultat tensions", "", record["resultat"]],
+            ["Tension collage / BE globale (V)", record["pickup_plausibility_status"], self.chrono_export_voltage_value(record["pickup_global_v"])],
+            ["Tension décollage / BR globale (V)", record["dropout_plausibility_status"], self.chrono_export_voltage_value(record["dropout_global_v"])],
+        ]
+        nb = max(1, min(4, int(record["nb_inverseurs"] or 1)))
+        for inv in range(1, nb + 1):
+            p = pickup.get(str(inv), pickup.get(inv))
+            d = dropout.get(str(inv), dropout.get(inv))
+            rows.append([f"Tension collage / BE inverseur {inv} (V)", "", self.chrono_export_voltage_value(p)])
+            rows.append([f"Tension décollage / BR inverseur {inv} (V)", "", self.chrono_export_voltage_value(d)])
+        stop = int(record["ea_stop_confirmed"] if record["ea_stop_confirmed"] is not None else -1)
+        stop_label = "OUI" if stop == 1 else "NON" if stop == 0 else "NON VÉRIFIÉ"
+        rows.extend([
+            ["Étalonnage utilisé", "", record["calibration_id"] if record["calibration_id"] is not None else "--"],
+            ["Erreur contrôle étalonnage (V)", "", self.chrono_export_voltage_value(record["calibration_error_v"])],
+            ["Arrêt EA confirmé", "", stop_label],
+            ["Tension EA finale (V)", "", self.chrono_export_voltage_value(record["ea_final_voltage_v"])],
+        ])
+        return rows
 
     def chrono_export_headers(self):
         return [
@@ -3346,25 +3979,21 @@ class IhmRelaisRp2040:
             return
         try:
             records = self.chrono_records_for_lot(lot)
+            voltage_records = self.voltage_records_for_lot(lot)
         except Exception as exc:
             QMessageBox.warning(self.window, "Export XLSX lot", f"Lecture base impossible : {exc}")
             return
-        if not records:
-            QMessageBox.information(self.window, "Export XLSX lot", f"Aucune mesure chronométrie enregistrée pour le lot {lot}.")
+        if not records and not voltage_records:
+            QMessageBox.information(self.window, "Export XLSX lot", f"Aucune mesure chronométrie ou tension enregistrée pour le lot {lot}.")
             return
-        default_name = f"chronometrie_lot_{self.filename_safe(lot)}.xlsx"
-        path = self.ask_export_path(
-            "Exporter le lot mesures en XLSX",
-            default_name,
-            "Excel (*.xlsx)",
-            ".xlsx",
-        )
+        default_name = f"chronometrie_et_tensions_lot_{self.filename_safe(lot)}.xlsx"
+        path = self.ask_export_path("Exporter chronométrie et tensions en XLSX", default_name, "Excel (*.xlsx)", ".xlsx")
         if not path:
             return
         try:
-            cards = self.chrono_export_measure_cards(records)
-            self.write_chrono_lot_xlsx(path, lot, cards)
-            self.label_chrono_status.setText(f"Export XLSX lot créé : {Path(path).name}")
+            summary_cards, detail_cards = self.chrono_export_measure_sheets(records, voltage_records)
+            self.write_chrono_lot_xlsx(path, lot, summary_cards, detail_cards)
+            self.label_chrono_status.setText(f"Export XLSX chronométrie + tensions créé : {Path(path).name}")
             QMessageBox.information(self.window, "Export XLSX lot", f"Export XLSX créé :\n{path}")
         except Exception as exc:
             QMessageBox.warning(self.window, "Export XLSX lot", f"Export impossible : {exc}")
@@ -3375,25 +4004,21 @@ class IhmRelaisRp2040:
             return
         try:
             records = self.chrono_records_for_lot(lot)
+            voltage_records = self.voltage_records_for_lot(lot)
         except Exception as exc:
             QMessageBox.warning(self.window, "Export PDF lot", f"Lecture base impossible : {exc}")
             return
-        if not records:
-            QMessageBox.information(self.window, "Export PDF lot", f"Aucune mesure chronométrie enregistrée pour le lot {lot}.")
+        if not records and not voltage_records:
+            QMessageBox.information(self.window, "Export PDF lot", f"Aucune mesure chronométrie ou tension enregistrée pour le lot {lot}.")
             return
-        default_name = f"chronometrie_lot_{self.filename_safe(lot)}.pdf"
-        path = self.ask_export_path(
-            "Exporter le lot mesures en PDF",
-            default_name,
-            "PDF (*.pdf)",
-            ".pdf",
-        )
+        default_name = f"chronometrie_et_tensions_lot_{self.filename_safe(lot)}.pdf"
+        path = self.ask_export_path("Exporter chronométrie et tensions en PDF", default_name, "PDF (*.pdf)", ".pdf")
         if not path:
             return
         try:
-            cards = self.chrono_export_measure_cards(records)
-            self.write_chrono_lot_pdf(path, lot, records, cards)
-            self.label_chrono_status.setText(f"Export PDF lot créé : {Path(path).name}")
+            summary_cards, detail_cards = self.chrono_export_measure_sheets(records, voltage_records)
+            self.write_chrono_lot_pdf(path, lot, records, summary_cards, detail_cards, voltage_records)
+            self.label_chrono_status.setText(f"Export PDF chronométrie + tensions créé : {Path(path).name}")
             QMessageBox.information(self.window, "Export PDF lot", f"Rapport PDF créé :\n{path}")
         except Exception as exc:
             QMessageBox.warning(self.window, "Export PDF lot", f"Création PDF impossible : {exc}")
@@ -3415,116 +4040,68 @@ class IhmRelaisRp2040:
             name = chr(65 + rem) + name
         return name
 
-    def write_chrono_lot_xlsx(self, path, lot, cards):
-        rows = []
-        for card in cards:
-            if rows:
-                rows.append(["", "", ""])
-            rows.extend(card)
-        if not rows:
-            rows = [["Lot", "", lot]]
-        sheet_rows = []
-        for r_idx, row in enumerate(rows, start=1):
-            cells = []
-            for c_idx, value in enumerate(row):
-                cell_ref = f"{self.xlsx_col_name(c_idx)}{r_idx}"
-                if r_idx > 1 and isinstance(value, (int, float)) and value is not None:
-                    cells.append(f'<c r="{cell_ref}" s="1"><v>{value}</v></c>')
-                else:
-                    cells.append(
-                        f'<c r="{cell_ref}" t="inlineStr" s="1">'
-                        f'<is><t>{self.xlsx_xml_escape(value)}</t></is></c>'
-                    )
-            sheet_rows.append(f'<row r="{r_idx}">{"".join(cells)}</row>')
-        last_col = "C"
-        col_widths = [42, 16, 18]
-        cols_xml = "".join(
-            f'<col min="{idx}" max="{idx}" width="{width}" customWidth="1"/>'
-            for idx, width in enumerate(col_widths, start=1)
-        )
-        sheet_xml = (
-            '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
-            '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" '
-            'xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">'
-            f'<dimension ref="A1:{last_col}{len(rows)}"/>'
-            '<sheetViews><sheetView workbookViewId="0"/></sheetViews>'
-            f'<cols>{cols_xml}</cols>'
-            f'<sheetData>{"".join(sheet_rows)}</sheetData>'
-            '</worksheet>'
-        )
-        now = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
-        files = {
-            "[Content_Types].xml": (
-                '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
-                '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">'
-                '<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>'
-                '<Default Extension="xml" ContentType="application/xml"/>'
-                '<Override PartName="/docProps/app.xml" ContentType="application/vnd.openxmlformats-officedocument.extended-properties+xml"/>'
-                '<Override PartName="/docProps/core.xml" ContentType="application/vnd.openxmlformats-package.core-properties+xml"/>'
-                '<Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>'
-                '<Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>'
-                '<Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/>'
-                '</Types>'
-            ),
-            "_rels/.rels": (
-                '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
-                '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
-                '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/>'
-                '<Relationship Id="rId2" Type="http://schemas.openxmlformats.org/package/2006/relationships/metadata/core-properties" Target="docProps/core.xml"/>'
-                '<Relationship Id="rId3" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/extended-properties" Target="docProps/app.xml"/>'
-                '</Relationships>'
-            ),
-            "docProps/app.xml": (
-                '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
-                '<Properties xmlns="http://schemas.openxmlformats.org/officeDocument/2006/extended-properties" '
-                'xmlns:vt="http://schemas.openxmlformats.org/officeDocument/2006/docPropsVTypes">'
-                '<Application>Neutral Screen RP2040</Application></Properties>'
-            ),
-            "docProps/core.xml": (
-                '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
-                '<cp:coreProperties xmlns:cp="http://schemas.openxmlformats.org/package/2006/metadata/core-properties" '
-                'xmlns:dc="http://purl.org/dc/elements/1.1/" '
-                'xmlns:dcterms="http://purl.org/dc/terms/" '
-                'xmlns:dcmitype="http://purl.org/dc/dcmitype/" '
-                'xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">'
-                f'<dc:title>Chronometrie lot {self.xlsx_xml_escape(lot)}</dc:title>'
-                '<dc:creator>Neutral Screen RP2040</dc:creator>'
-                f'<dcterms:created xsi:type="dcterms:W3CDTF">{now}</dcterms:created>'
-                f'<dcterms:modified xsi:type="dcterms:W3CDTF">{now}</dcterms:modified>'
-                '</cp:coreProperties>'
-            ),
-            "xl/workbook.xml": (
-                '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
-                '<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" '
-                'xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">'
-                '<sheets><sheet name="Mesures lot" sheetId="1" r:id="rId1"/></sheets></workbook>'
-            ),
-            "xl/_rels/workbook.xml.rels": (
-                '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
-                '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
-                '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/>'
-                '<Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/>'
-                '</Relationships>'
-            ),
-            "xl/styles.xml": (
-                '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
-                '<styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">'
-                '<fonts count="2"><font><sz val="10"/><name val="Arial"/></font><font><b/><sz val="10"/><name val="Arial"/></font></fonts>'
-                '<fills count="2"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill></fills>'
-                '<borders count="1"><border><left/><right/><top/><bottom/><diagonal/></border></borders>'
-                '<cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs>'
-                '<cellXfs count="3"><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/>'
-                '<xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/>'
-                '<xf numFmtId="0" fontId="1" fillId="0" borderId="0" xfId="0"/></cellXfs>'
-                '</styleSheet>'
-            ),
-            "xl/worksheets/sheet1.xml": sheet_xml,
-        }
-        with zipfile.ZipFile(path, "w", compression=zipfile.ZIP_DEFLATED) as archive:
-            for name, content in files.items():
-                archive.writestr(name, content)
+    def write_chrono_lot_xlsx(self, path, lot, summary_cards, detail_cards):
+        """Crée les deux feuilles opérateur demandées dans un même classeur."""
+        from openpyxl import Workbook
+        from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 
-    def write_chrono_lot_pdf(self, path, lot, records, cards):
+        workbook = Workbook()
+        first = workbook.active
+        first.title = "Synthèse globale"
+        second = workbook.create_sheet("Détail tensions")
+
+        thin = Side(style="thin", color="B7B7B7")
+        border = Border(left=thin, right=thin, top=thin, bottom=thin)
+        title_fill = PatternFill("solid", fgColor="17365D")
+        section_fill = PatternFill("solid", fgColor="D9EAF7")
+        result_fill = PatternFill("solid", fgColor="E2F0D9")
+
+        def fill_sheet(sheet, sheet_title, cards):
+            sheet.sheet_view.showGridLines = False
+            sheet.column_dimensions["A"].width = 48
+            sheet.column_dimensions["B"].width = 22
+            sheet.column_dimensions["C"].width = 22
+            sheet.merge_cells("A1:C1")
+            cell = sheet["A1"]
+            cell.value = f"{sheet_title} - Lot {lot}"
+            cell.font = Font(name="Arial", size=14, bold=True, color="FFFFFF")
+            cell.fill = title_fill
+            cell.alignment = Alignment(horizontal="center", vertical="center")
+            sheet.row_dimensions[1].height = 24
+            row_index = 3
+            for card_index, card in enumerate(cards, start=1):
+                if card_index > 1:
+                    row_index += 1
+                for label, sanction, value in card:
+                    sheet.cell(row_index, 1, label)
+                    sheet.cell(row_index, 2, sanction)
+                    sheet.cell(row_index, 3, value)
+                    for col in range(1, 4):
+                        c = sheet.cell(row_index, col)
+                        c.font = Font(name="Arial", size=10, bold=(label in ("Lot", "Numéro de Relais")))
+                        c.border = border
+                        c.alignment = Alignment(vertical="center", wrap_text=True)
+                    if label in ("Résultat chronométrie", "Résultat tensions"):
+                        for col in range(1, 4):
+                            sheet.cell(row_index, col).fill = result_fill
+                    if label.startswith("Tension d'"):
+                        for col in range(1, 4):
+                            sheet.cell(row_index, col).fill = section_fill
+                    if isinstance(value, (int, float)):
+                        sheet.cell(row_index, 3).number_format = "0.000"
+                    row_index += 1
+            sheet.freeze_panes = "A3"
+            sheet.print_title_rows = "1:2"
+            sheet.page_setup.orientation = "portrait"
+            sheet.page_setup.fitToWidth = 1
+            sheet.sheet_properties.pageSetUpPr.fitToPage = True
+            sheet.print_options.horizontalCentered = True
+
+        fill_sheet(first, "Synthèse globale", summary_cards)
+        fill_sheet(second, "Détail tensions", detail_cards)
+        workbook.save(path)
+
+    def write_chrono_lot_pdf(self, path, lot, records, summary_cards, detail_cards, voltage_records=None):
         writer = QPdfWriter(path)
         writer.setPageSize(QPageSize(QPageSize.A4))
         writer.setResolution(96)
@@ -3543,45 +4120,46 @@ class IhmRelaisRp2040:
             title_font = QFont("Arial", 15)
             title_font.setBold(True)
 
-            def draw_text(x, yy, text, font=None, max_chars=None):
+            def draw_text(x, yy, value, font=None, max_chars=None):
                 painter.setFont(font or normal)
-                text = str(text or "")
-                if max_chars and len(text) > max_chars:
-                    text = text[: max_chars - 3] + "..."
-                painter.drawText(int(x), int(yy), text)
+                value = str(value if value is not None else "")
+                if max_chars and len(value) > max_chars:
+                    value = value[: max_chars - 3] + "..."
+                painter.drawText(int(x), int(yy), value)
 
             def new_page():
                 nonlocal y
                 writer.newPage()
                 y = margin
 
-            total_records = len(records)
-            sn_distincts = len({str(r["sn"] or "") for r in records if str(r["sn"] or "")})
-            ok_count = sum(1 for r in records if str(r["resultat"]).upper() == "OK")
-            default_count = total_records - ok_count
-
-            painter.setFont(title_font)
-            painter.drawText(margin, y, f"Chronométrie contacts - Lot {lot}")
-            y += line_h * 2
-            draw_text(margin, y, f"Mesures enregistrées : {total_records}    SN distincts : {sn_distincts}    OK : {ok_count}    DEFAUT : {default_count}", bold)
-            y += line_h
-            draw_text(margin, y, f"Généré le : {time.strftime('%d/%m/%Y %H:%M')}", normal)
-            y += line_h * 2
-
-            x_label = margin
-            x_sanction = margin + 330
-            x_value = margin + 455
-            for card in cards:
-                if y + line_h * (len(card) + 2) > page_h - margin:
+            def draw_section(section_title, cards, force_new_page=False):
+                nonlocal y
+                if force_new_page:
                     new_page()
-                for row_index, row in enumerate(card):
-                    font = normal
-                    draw_text(x_label, y, row[0], font, 48)
-                    draw_text(x_sanction, y, row[1], font, 14)
-                    draw_text(x_value, y, row[2], font, 18)
+                painter.setFont(title_font)
+                painter.drawText(margin, y, f"{section_title} - Lot {lot}")
+                y += line_h * 2
+                draw_text(margin, y, f"Généré le : {time.strftime('%d/%m/%Y %H:%M')}", normal)
+                y += line_h * 2
+                x_label = margin
+                x_sanction = margin + 330
+                x_value = margin + 455
+                for card in cards:
+                    if y + line_h * (len(card) + 2) > page_h - margin:
+                        new_page()
+                        draw_text(margin, y, f"{section_title} - Lot {lot} (suite)", bold)
+                        y += line_h * 2
+                    for label, sanction, value in card:
+                        row_font = bold if label in ("Lot", "Numéro de Relais") else normal
+                        draw_text(x_label, y, label, row_font, 48)
+                        draw_text(x_sanction, y, sanction, normal, 16)
+                        draw_text(x_value, y, value, normal, 18)
+                        y += line_h
+                    painter.drawLine(margin, y - 9, page_w - margin, y - 9)
                     y += line_h
-                painter.drawLine(margin, y - 9, page_w - margin, y - 9)
-                y += line_h
+
+            draw_section("FEUILLE 1 - SYNTHÈSE GLOBALE", summary_cards)
+            draw_section("FEUILLE 2 - DÉTAIL TENSIONS", detail_cards, force_new_page=True)
         finally:
             painter.end()
 
@@ -3681,8 +4259,15 @@ class IhmRelaisRp2040:
             missing = [name for name in required if name not in cols]
             if missing:
                 raise RuntimeError("Colonnes manquantes dans mesures_chrono_contacts : " + ", ".join(missing))
-            nb_mesures = con.execute("SELECT COUNT(*) AS n FROM mesures_chrono_contacts").fetchone()["n"]
-        return nb_mesures, 0
+            nb_chrono = con.execute("SELECT COUNT(*) AS n FROM mesures_chrono_contacts").fetchone()["n"]
+            nb_tensions = 0
+            if self.database_external_has_table(con, "mesures_tension_fonctionnement"):
+                voltage_cols = {str(r["name"]) for r in con.execute("PRAGMA table_info(mesures_tension_fonctionnement)").fetchall()}
+                voltage_required = {"lot", "date_test", "relais", "nom_test", "sn", "relay_type", "resultat", "timestamp"}
+                if not voltage_required.issubset(voltage_cols):
+                    raise RuntimeError("Table mesures_tension_fonctionnement incomplète dans la base source.")
+                nb_tensions = con.execute("SELECT COUNT(*) AS n FROM mesures_tension_fonctionnement").fetchone()["n"]
+        return nb_chrono, nb_tensions
 
     def database_merge_clicked(self):
         if getattr(self, "auto_neutral_running", False):
@@ -3712,7 +4297,7 @@ class IhmRelaisRp2040:
             "FUSIONNER CETTE BASE ?",
             (
                 f"Base source :\n{path}\n\n"
-                f"Contenu détecté :\n- {nb_essais} mesure(s) chronométrie\n\n"
+                f"Contenu détecté :\n- {nb_essais} mesure(s) chronométrie\n- {nb_ops} mesure(s) de tension\n\n"
                 "La base chronométrie active sera sauvegardée avant fusion.\n"
                 "Les mesures déjà présentes ne seront pas dupliquées."
             )
@@ -3728,7 +4313,7 @@ class IhmRelaisRp2040:
         ):
             return
         if self.database_admin_is_chrono():
-            self.chrono_database_merge_from_file(Path(path), nb_mesures_source=nb_essais)
+            self.chrono_database_merge_from_file(Path(path), nb_mesures_source=nb_essais, nb_tensions_source=nb_ops)
             return
         self.database_merge_from_file(Path(path), nb_essais_source=nb_essais)
 
@@ -3816,8 +4401,8 @@ class IhmRelaisRp2040:
             QMessageBox.warning(self.window, "Fusion base", f"Fusion impossible : {exc}")
             self.label_prod_status.setText(f"Fusion base impossible : {exc}")
 
-    def chrono_database_merge_from_file(self, source_path, nb_mesures_source=None):
-        headers = [
+    def chrono_database_merge_from_file(self, source_path, nb_mesures_source=None, nb_tensions_source=None):
+        chrono_headers = [
             "lot", "date_test", "relais", "ambiance_c", "nom_test", "sn",
             "relay_type", "action", "nb_inverseurs", "capture_ms", "pulse_ms",
             "limite_temps_ms", "limite_rebond_ms", "resultat", "overflow",
@@ -3825,13 +4410,12 @@ class IhmRelaisRp2040:
         ]
         try:
             backup_files = self.database_backup_raw_files_for(self.chrono_db_file, "chronometrie_contacts", "avant_fusion")
-            self.chrono_init_db()
-            inserted = 0
-            skipped = 0
+            self.voltage_init_db()
+            inserted = skipped = inserted_voltage = skipped_voltage = 0
             with self.database_connect_file(source_path) as source, self.chrono_connect_db() as dest:
                 source_cols = {str(r["name"]) for r in source.execute("PRAGMA table_info(mesures_chrono_contacts)").fetchall()}
                 select_parts = []
-                for name in headers:
+                for name in chrono_headers:
                     if name in source_cols:
                         select_parts.append(name)
                     elif name == "relay_type":
@@ -3842,54 +4426,51 @@ class IhmRelaisRp2040:
                         select_parts.append(f"0.0 AS {name}")
                     else:
                         select_parts.append(f"'' AS {name}")
-                rows = source.execute(
-                    "SELECT " + ", ".join(select_parts) + " FROM mesures_chrono_contacts ORDER BY timestamp ASC, id ASC"
-                ).fetchall()
+                rows = source.execute("SELECT " + ", ".join(select_parts) + " FROM mesures_chrono_contacts ORDER BY timestamp ASC, id ASC").fetchall()
                 duplicate_query = """
                     SELECT id FROM mesures_chrono_contacts
-                    WHERE lot = ? AND date_test = ? AND relais = ? AND nom_test = ?
-                      AND sn = ? AND relay_type = ? AND action = ? AND timestamp = ?
-                    LIMIT 1
+                    WHERE lot=? AND date_test=? AND relais=? AND nom_test=?
+                      AND sn=? AND relay_type=? AND action=? AND timestamp=? LIMIT 1
                 """
-                insert_query = """
-                    INSERT INTO mesures_chrono_contacts(
-                        lot, date_test, relais, ambiance_c, nom_test, sn,
-                        relay_type, action, nb_inverseurs, capture_ms, pulse_ms,
-                        limite_temps_ms, limite_rebond_ms, resultat, overflow,
-                        details_json, events_json, timestamp
-                    )
-                    VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """
+                insert_query = "INSERT INTO mesures_chrono_contacts(" + ",".join(chrono_headers) + ") VALUES(" + ",".join("?" for _ in chrono_headers) + ")"
                 for row in rows:
-                    duplicate_values = (
-                        str(row["lot"] or ""),
-                        str(row["date_test"] or ""),
-                        str(row["relais"] or ""),
-                        str(row["nom_test"] or ""),
-                        str(row["sn"] or ""),
-                        str(row["relay_type"] or ""),
-                        str(row["action"] or ""),
-                        str(row["timestamp"] or ""),
-                    )
-                    if dest.execute(duplicate_query, duplicate_values).fetchone() is not None:
-                        skipped += 1
-                        continue
-                    dest.execute(insert_query, tuple(row[h] for h in headers))
-                    inserted += 1
+                    duplicate_values=(str(row["lot"] or ""),str(row["date_test"] or ""),str(row["relais"] or ""),str(row["nom_test"] or ""),str(row["sn"] or ""),str(row["relay_type"] or ""),str(row["action"] or ""),str(row["timestamp"] or ""))
+                    if dest.execute(duplicate_query,duplicate_values).fetchone() is not None:
+                        skipped += 1; continue
+                    dest.execute(insert_query,tuple(row[h] for h in chrono_headers)); inserted += 1
+
+                if self.database_external_has_table(source, "mesures_tension_fonctionnement"):
+                    source_voltage_cols = [str(r["name"]) for r in source.execute("PRAGMA table_info(mesures_tension_fonctionnement)").fetchall() if str(r["name"]) != "id"]
+                    dest_voltage_cols = {str(r["name"]) for r in dest.execute("PRAGMA table_info(mesures_tension_fonctionnement)").fetchall()}
+                    common = [name for name in source_voltage_cols if name in dest_voltage_cols]
+                    if common:
+                        voltage_rows = source.execute("SELECT " + ",".join(common) + " FROM mesures_tension_fonctionnement ORDER BY timestamp ASC, id ASC").fetchall()
+                        voltage_insert = "INSERT INTO mesures_tension_fonctionnement(" + ",".join(common) + ") VALUES(" + ",".join("?" for _ in common) + ")"
+                        for row in voltage_rows:
+                            exists = dest.execute("""
+                                SELECT id FROM mesures_tension_fonctionnement
+                                WHERE lot=? AND sn=? AND relais=? AND nom_test=? AND timestamp=?
+                                LIMIT 1
+                            """, (str(row["lot"] or ""),str(row["sn"] or ""),str(row["relais"] or ""),str(row["nom_test"] or ""),str(row["timestamp"] or ""))).fetchone()
+                            if exists is not None:
+                                skipped_voltage += 1; continue
+                            dest.execute(voltage_insert, tuple(row[name] for name in common)); inserted_voltage += 1
             self.database_admin_refresh()
-            self.label_prod_status.setText(f"Fusion chronométrie OK : {inserted} mesure(s) importée(s), {skipped} doublon(s) ignoré(s).")
+            self.label_prod_status.setText(f"Fusion OK : {inserted} chrono + {inserted_voltage} tension(s), doublons {skipped + skipped_voltage}.")
             details = (
-                f"Fusion chronométrie terminée.\n\n"
-                f"Mesures source : {nb_mesures_source if nb_mesures_source is not None else inserted + skipped}\n"
-                f"Mesures importées : {inserted}\n"
-                f"Doublons ignorés : {skipped}"
+                "Fusion chronométrie + tensions terminée.\n\n"
+                f"Chronométrie source : {nb_mesures_source if nb_mesures_source is not None else inserted + skipped}\n"
+                f"Chronométrie importée : {inserted}\n"
+                f"Tensions source : {nb_tensions_source if nb_tensions_source is not None else inserted_voltage + skipped_voltage}\n"
+                f"Tensions importées : {inserted_voltage}\n"
+                f"Doublons ignorés : {skipped + skipped_voltage}"
             )
             if backup_files:
                 details += "\n\nSauvegarde avant fusion :\n" + "\n".join(str(p) for p in backup_files)
             QMessageBox.information(self.window, "Fusion base", details)
         except Exception as exc:
-            QMessageBox.warning(self.window, "Fusion base", f"Fusion chronométrie impossible : {exc}")
-            self.label_prod_status.setText(f"Fusion chronométrie impossible : {exc}")
+            QMessageBox.warning(self.window, "Fusion base", f"Fusion chronométrie/tensions impossible : {exc}")
+            self.label_prod_status.setText(f"Fusion impossible : {exc}")
 
     def database_recreate_default_clicked(self):
         if getattr(self, "auto_neutral_running", False):
@@ -3925,7 +4506,7 @@ class IhmRelaisRp2040:
         try:
             backup_files = self.database_backup_raw_files(reason_slug)
             self.database_remove_active_files()
-            self.production_data = {"version": "2.12.2", "last_context": {}, "records": [], "access_code": access_code}
+            self.production_data = {"version": "2.12.3", "last_context": {}, "records": [], "access_code": access_code}
             self.current_access_code = access_code
             self.production_init_db()
             self.production_set_setting("access_code", access_code)
@@ -3954,7 +4535,7 @@ class IhmRelaisRp2040:
         try:
             backup_files = self.database_backup_raw_files_for(self.chrono_db_file, "chronometrie_contacts", reason_slug)
             self.database_remove_files_for(self.chrono_db_file)
-            self.chrono_init_db()
+            self.voltage_init_db()
             self.database_admin_refresh()
             self.label_prod_status.setText("Base chronométrie recréée : base vide prête.")
             if show_success:
@@ -4087,22 +4668,18 @@ class IhmRelaisRp2040:
     def chrono_export_lot_xlsx_from_database(self, lot):
         try:
             records = self.chrono_records_for_lot(lot)
+            voltage_records = self.voltage_records_for_lot(lot)
         except Exception as exc:
             QMessageBox.warning(self.window, "XLSX lot", f"Lecture base impossible : {exc}")
             return
-        if not records:
-            QMessageBox.information(self.window, "XLSX lot", f"Aucune mesure chronométrie trouvée pour le lot {self.database_lot_display(lot)}.")
+        if not records and not voltage_records:
+            QMessageBox.information(self.window, "XLSX lot", f"Aucune mesure chronométrie ou tension trouvée pour le lot {self.database_lot_display(lot)}.")
             return
-        path = self.ask_export_path(
-            "Exporter le lot chronométrie en XLSX",
-            f"chronometrie_lot_{self.filename_safe(lot)}.xlsx",
-            "Excel (*.xlsx)",
-            ".xlsx",
-        )
+        path = self.ask_export_path("Exporter chronométrie et tensions en XLSX", f"chronometrie_et_tensions_lot_{self.filename_safe(lot)}.xlsx", "Excel (*.xlsx)", ".xlsx")
         if not path:
             return
         try:
-            self.write_chrono_lot_xlsx(path, lot, self.chrono_export_measure_cards(records))
+            self.write_chrono_lot_xlsx(path, lot, self.chrono_export_measure_cards(records, voltage_records))
             QMessageBox.information(self.window, "XLSX lot", f"Export XLSX créé :\n{path}")
         except Exception as exc:
             QMessageBox.warning(self.window, "XLSX lot", f"Export impossible : {exc}")
@@ -4110,23 +4687,20 @@ class IhmRelaisRp2040:
     def chrono_export_lot_pdf_from_database(self, lot):
         try:
             records = self.chrono_records_for_lot(lot)
+            voltage_records = self.voltage_records_for_lot(lot)
         except Exception as exc:
             QMessageBox.warning(self.window, "PDF lot", f"Lecture base impossible : {exc}")
             return
-        if not records:
-            QMessageBox.information(self.window, "PDF lot", f"Aucune mesure chronométrie trouvée pour le lot {self.database_lot_display(lot)}.")
+        if not records and not voltage_records:
+            QMessageBox.information(self.window, "PDF lot", f"Aucune mesure chronométrie ou tension trouvée pour le lot {self.database_lot_display(lot)}.")
             return
-        path = self.ask_export_path(
-            "Exporter le lot chronométrie en PDF",
-            f"chronometrie_lot_{self.filename_safe(lot)}.pdf",
-            "PDF (*.pdf)",
-            ".pdf",
-        )
+        path = self.ask_export_path("Exporter chronométrie et tensions en PDF", f"chronometrie_et_tensions_lot_{self.filename_safe(lot)}.pdf", "PDF (*.pdf)", ".pdf")
         if not path:
             return
         try:
-            self.write_chrono_lot_pdf(path, lot, records, self.chrono_export_measure_cards(records))
-            QMessageBox.information(self.window, "PDF lot", f"Rapport PDF créé :\n{path}")
+            summary_cards, detail_cards = self.chrono_export_measure_sheets(records, voltage_records)
+            self.write_chrono_lot_pdf(path, lot, records, summary_cards, detail_cards, voltage_records)
+            QMessageBox.information(self.window, "PDF lot", f"Export PDF créé :\n{path}")
         except Exception as exc:
             QMessageBox.warning(self.window, "PDF lot", f"Création PDF impossible : {exc}")
 
@@ -4189,63 +4763,39 @@ class IhmRelaisRp2040:
             QMessageBox.information(self.window, "Détail chronométrie", "Sélectionner un groupe de mesures.")
             return
         try:
+            self.voltage_init_db()
             with self.chrono_connect_db() as con:
-                records = con.execute(
-                    """
-                    SELECT lot, date_test, relais, ambiance_c, nom_test, sn,
-                           relay_type, action, nb_inverseurs, capture_ms, pulse_ms,
-                           resultat, overflow, details_json, timestamp
+                chrono = con.execute("""
+                    SELECT timestamp, date_test, sn, relay_type, action, nb_inverseurs, capture_ms, pulse_ms,
+                           resultat, overflow, ambiance_c, details_json
                     FROM mesures_chrono_contacts
-                    WHERE lot = ? AND relais = ? AND nom_test = ?
-                    ORDER BY timestamp ASC, id ASC
-                    """,
-                    (group["lot"], group["relais"], group["nom_test"]),
-                ).fetchall()
+                    WHERE lot=? AND relais=? AND nom_test=?
+                """, (group["lot"], group["relais"], group["nom_test"])).fetchall()
+                volts = con.execute("""
+                    SELECT timestamp, date_test, sn, relay_type, nb_inverseurs, pickup_global_v, dropout_global_v,
+                           resultat, ambiance_c, pickup_json, dropout_json
+                    FROM mesures_tension_fonctionnement
+                    WHERE lot=? AND relais=? AND nom_test=?
+                """, (group["lot"], group["relais"], group["nom_test"])).fetchall()
         except Exception as exc:
             QMessageBox.warning(self.window, "Détail chronométrie", f"Lecture impossible : {exc}")
             return
-        if not records:
+        combined=[]
+        for r in chrono:
+            combined.append((str(r["timestamp"] or ""), [self.format_datetime_fr(r["timestamp"]) or r["date_test"], "CHRONO", r["sn"], r["relay_type"], r["action"], r["nb_inverseurs"], r["capture_ms"], r["pulse_ms"], "", "", r["resultat"], "Oui" if int(r["overflow"] or 0) else "Non", r["ambiance_c"], r["details_json"]]))
+        for r in volts:
+            detail=json.dumps({"pickup":self.chrono_json_dict(r["pickup_json"]),"dropout":self.chrono_json_dict(r["dropout_json"])}, ensure_ascii=False)
+            combined.append((str(r["timestamp"] or ""), [self.format_datetime_fr(r["timestamp"]) or r["date_test"], "TENSION", r["sn"], r["relay_type"], "BE/BR", r["nb_inverseurs"], "", "", self.chrono_export_voltage_value(r["pickup_global_v"]), self.chrono_export_voltage_value(r["dropout_global_v"]), r["resultat"], "", r["ambiance_c"], detail]))
+        combined.sort(key=lambda x:x[0])
+        if not combined:
             QMessageBox.information(self.window, "Détail chronométrie", "Aucune mesure trouvée pour cette sélection.")
             return
-        dialog = QDialog(self.window)
-        dialog.setWindowTitle(f"Chronométrie - Lot {self.database_lot_display(group['lot'])}")
-        dialog.resize(1100, 520)
-        layout = QVBoxLayout(dialog)
-        title = QLabel(
-            f"Lot {self.database_lot_display(group['lot'])} - Relais {group['relais'] or '-'} - Test {group['nom_test'] or '-'}"
-        )
-        title.setStyleSheet("font-size: 14pt; font-weight: bold; color: black;")
-        layout.addWidget(title)
-        table = QTableWidget(dialog)
-        table.setColumnCount(11)
-        table.setHorizontalHeaderLabels(["Date", "SN", "Type", "Action", "Inv.", "Capture", "Pulse", "Résultat", "Overflow", "Ambiance", "Détails"])
-        table.setRowCount(len(records))
-        table.setEditTriggers(QTableWidget.NoEditTriggers)
-        table.setSelectionBehavior(QTableWidget.SelectRows)
-        for row, record in enumerate(records):
-            vals = [
-                self.format_datetime_fr(record["timestamp"]) or record["date_test"],
-                record["sn"],
-                record["relay_type"],
-                record["action"],
-                record["nb_inverseurs"],
-                record["capture_ms"],
-                record["pulse_ms"],
-                record["resultat"],
-                "Oui" if int(record["overflow"] or 0) else "Non",
-                record["ambiance_c"],
-                record["details_json"],
-            ]
-            for col, val in enumerate(vals):
-                table.setItem(row, col, self.table_item(val))
-        for col, width in enumerate([125, 80, 85, 75, 45, 70, 60, 75, 65, 75, 330]):
-            table.setColumnWidth(col, width)
-        table.horizontalHeader().setStretchLastSection(True)
-        layout.addWidget(table)
-        close_button = QPushButton("Fermer")
-        close_button.clicked.connect(dialog.accept)
-        layout.addWidget(close_button)
-        dialog.exec()
+        dialog=QDialog(self.window); dialog.setWindowTitle(f"Chronométrie et tensions - Lot {self.database_lot_display(group['lot'])}"); dialog.resize(1350,560)
+        layout=QVBoxLayout(dialog); title=QLabel(f"Lot {self.database_lot_display(group['lot'])} - Relais {group['relais'] or '-'} - Test {group['nom_test'] or '-'}"); title.setStyleSheet("font-size: 14pt; font-weight: bold; color: black;"); layout.addWidget(title)
+        table=QTableWidget(dialog); headers=["Date","Source","SN","Type","Action","Inv.","Capture","Pulse","BE V","BR V","Résultat","Overflow","Ambiance","Détails"]; table.setColumnCount(len(headers)); table.setHorizontalHeaderLabels(headers); table.setRowCount(len(combined)); table.setEditTriggers(QTableWidget.NoEditTriggers); table.setSelectionBehavior(QTableWidget.SelectRows)
+        for row,(_ts,vals) in enumerate(combined):
+            for col,val in enumerate(vals): table.setItem(row,col,self.table_item(val))
+        table.horizontalHeader().setStretchLastSection(True); layout.addWidget(table); close_button=QPushButton("Fermer"); close_button.clicked.connect(dialog.accept); layout.addWidget(close_button); dialog.exec()
 
     def chrono_database_delete_selected_group(self):
         group = self.chrono_database_selected_group()
@@ -4253,52 +4803,29 @@ class IhmRelaisRp2040:
             QMessageBox.information(self.window, "Supprimer mesures", "Sélectionner un groupe de mesures à supprimer.")
             return
         try:
+            self.voltage_init_db()
             with self.chrono_connect_db() as con:
-                count = con.execute(
-                    """
-                    SELECT COUNT(*) AS n
-                    FROM mesures_chrono_contacts
-                    WHERE lot = ? AND relais = ? AND nom_test = ?
-                    """,
-                    (group["lot"], group["relais"], group["nom_test"]),
-                ).fetchone()["n"]
+                chrono_count=con.execute("SELECT COUNT(*) AS n FROM mesures_chrono_contacts WHERE lot=? AND relais=? AND nom_test=?", (group["lot"],group["relais"],group["nom_test"])).fetchone()["n"]
+                voltage_count=con.execute("SELECT COUNT(*) AS n FROM mesures_tension_fonctionnement WHERE lot=? AND relais=? AND nom_test=?", (group["lot"],group["relais"],group["nom_test"])).fetchone()["n"]
         except Exception as exc:
-            QMessageBox.warning(self.window, "Supprimer mesures", f"Lecture impossible : {exc}")
-            return
-        if count <= 0:
-            QMessageBox.information(self.window, "Supprimer mesures", "Aucune mesure trouvée pour cette sélection.")
-            return
-        label = f"Lot {self.database_lot_display(group['lot'])} / Relais {group['relais'] or '-'} / Test {group['nom_test'] or '-'}"
-        if not self.big_message_box(
-            "Supprimer mesures chronométrie",
-            "SUPPRIMER CES MESURES ?",
-            f"{label}\n\n"
-            f"Cette opération supprimera définitivement {count} mesure(s) chronométrie.\n"
-            "Une sauvegarde de sécurité sera faite avant suppression.\n\n"
-            "Continuer ?",
-            ok_text="OUI, SUPPRIMER",
-            cancel_text="ANNULER",
-            icon=QMessageBox.Warning,
-        ):
-            return
+            QMessageBox.warning(self.window, "Supprimer mesures", f"Lecture impossible : {exc}"); return
+        total=int(chrono_count or 0)+int(voltage_count or 0)
+        if total<=0:
+            QMessageBox.information(self.window, "Supprimer mesures", "Aucune mesure trouvée pour cette sélection."); return
+        label=f"Lot {self.database_lot_display(group['lot'])} / Relais {group['relais'] or '-'} / Test {group['nom_test'] or '-'}"
+        if not self.big_message_box("Supprimer mesures", "SUPPRIMER CES MESURES ?", f"{label}\n\nChronométrie : {chrono_count}\nTensions : {voltage_count}\nTotal : {total}\n\nUne sauvegarde sera faite avant suppression.", ok_text="OUI, SUPPRIMER", cancel_text="ANNULER", icon=QMessageBox.Warning): return
         try:
-            backup_files = self.database_backup_raw_files_for(self.chrono_db_file, "chronometrie_contacts", "avant_suppression_mesures")
+            backup_files=self.database_backup_raw_files_for(self.chrono_db_file,"chronometrie_contacts","avant_suppression_mesures")
             with self.chrono_connect_db() as con:
-                con.execute(
-                    """
-                    DELETE FROM mesures_chrono_contacts
-                    WHERE lot = ? AND relais = ? AND nom_test = ?
-                    """,
-                    (group["lot"], group["relais"], group["nom_test"]),
-                )
-            self.database_admin_refresh()
-            self.label_prod_status.setText(f"Mesures chronométrie supprimées : {count}.")
-            details = f"Mesures supprimées : {count}\n{label}"
-            if backup_files:
-                details += "\n\nSauvegarde avant suppression :\n" + "\n".join(str(p) for p in backup_files)
-            QMessageBox.information(self.window, "Supprimer mesures", details)
+                args=(group["lot"],group["relais"],group["nom_test"])
+                con.execute("DELETE FROM mesures_chrono_contacts WHERE lot=? AND relais=? AND nom_test=?",args)
+                con.execute("DELETE FROM mesures_tension_fonctionnement WHERE lot=? AND relais=? AND nom_test=?",args)
+            self.database_admin_refresh(); self.label_prod_status.setText(f"Mesures supprimées : {total}.")
+            details=f"Chronométrie supprimée : {chrono_count}\nTensions supprimées : {voltage_count}"
+            if backup_files: details += "\n\nSauvegarde :\n"+"\n".join(str(p) for p in backup_files)
+            QMessageBox.information(self.window,"Supprimer mesures",details)
         except Exception as exc:
-            QMessageBox.warning(self.window, "Supprimer mesures", f"Suppression impossible : {exc}")
+            QMessageBox.warning(self.window,"Supprimer mesures",f"Suppression impossible : {exc}")
 
     def production_migrate_legacy_json_if_needed(self):
         if self.production_get_setting("legacy_json_migrated", "0") == "1":
@@ -4362,7 +4889,7 @@ class IhmRelaisRp2040:
                 last_context = {}
             self.current_access_code = str(self.production_get_setting("access_code", LOCK_ACCESS_CODE) or LOCK_ACCESS_CODE)
             self.production_data = {
-                "version": "2.12.2",
+                "version": "2.12.3",
                 "last_context": last_context,
                 "records": [],
                 "access_code": self.current_access_code,
@@ -4374,7 +4901,7 @@ class IhmRelaisRp2040:
 
     def production_save_db(self):
         self.production_init_db()
-        self.production_data["version"] = "2.12.2"
+        self.production_data["version"] = "2.12.3"
         self.production_data["access_code"] = self.current_access_code
         self.production_set_setting("access_code", self.current_access_code)
         self.production_set_setting(
@@ -5005,8 +5532,7 @@ class IhmRelaisRp2040:
             lambda text: self.sync_combo_text(self.comboBox_baudrate, text)
         )
         self.pushButton_prod_save_context.clicked.connect(self.production_prepare_and_open_auto_test)
-        if self.pushButton_prod_reload_base is not None:
-            self.pushButton_prod_reload_base.clicked.connect(self.production_reload_base)
+        self.pushButton_prod_reload_base.clicked.connect(self.production_reload_base)
         self.pushButton_prod_export_pdf_lot.clicked.connect(self.production_export_pdf_lot)
         self.lineEdit_prod_search_lot.textChanged.connect(self.production_refresh_table)
         self.pushButton_prod_search_clear.clicked.connect(self.lineEdit_prod_search_lot.clear)
@@ -5055,7 +5581,6 @@ class IhmRelaisRp2040:
 
         self.pushButton_auto_neutral_marche.clicked.connect(self.auto_neutral_start)
         self.pushButton_auto_neutral_arret.clicked.connect(self.auto_neutral_stop)
-        self.pushButton_auto_fin_essai.clicked.connect(self.auto_validate_end_of_test)
         self.pushButton_auto_lot_fini.clicked.connect(self.auto_finish_lot)
         self.comboBox_auto_scenario.currentIndexChanged.connect(self.on_auto_scenario_changed)
         self.pushButton_auto_scenario_recharger.clicked.connect(self.on_recharger_scenarios)
@@ -5077,10 +5602,22 @@ class IhmRelaisRp2040:
         self.pushButton_voltage_pickup.clicked.connect(lambda: self.voltage_start_test("PICKUP"))
         self.pushButton_voltage_dropout.clicked.connect(lambda: self.voltage_start_test("DROPOUT"))
         self.pushButton_voltage_cycle.clicked.connect(lambda: self.voltage_start_test("CYCLE"))
-        self.pushButton_voltage_stop.clicked.connect(self.voltage_abort_test)
+        self.pushButton_voltage_measure_all.clicked.connect(self.voltage_start_measure_all)
+        self.pushButton_voltage_stop.clicked.connect(self.voltage_stop_clicked)
         self.pushButton_voltage_export_xlsx.clicked.connect(self.voltage_export_lot_xlsx)
         self.pushButton_voltage_export_pdf.clicked.connect(self.voltage_export_lot_pdf)
-        self.spinBox_voltage_nb_inverseurs.valueChanged.connect(lambda _value: self.voltage_refresh_results_table())
+        self.spinBox_voltage_nb_inverseurs.valueChanged.connect(lambda _value: self.voltage_on_nb_inverseurs_changed())
+        self.doubleSpinBox_voltage_vmax.valueChanged.connect(self.voltage_update_ramp_limits)
+        for spin in (
+            self.doubleSpinBox_voltage_vmax,
+            self.doubleSpinBox_voltage_ramp_up_s,
+            self.doubleSpinBox_voltage_ramp_down_s,
+            self.doubleSpinBox_voltage_current_limit,
+            self.doubleSpinBox_voltage_chrono_v,
+            self.doubleSpinBox_voltage_interphase_s,
+        ):
+            spin.valueChanged.connect(self.voltage_save_measure_settings)
+            spin.editingFinished.connect(self.voltage_commit_measure_settings)
         self.comboBox_voltage_relay_type.currentTextChanged.connect(self.voltage_update_relay_type_ui)
         self.pushButton_voltage_open_calibration.clicked.connect(lambda: self.set_tab_internal(self.tab_voltage_calibration))
         self.pushButton_calibration_request_ads.clicked.connect(self.voltage_calibration_request_ads)
@@ -5256,6 +5793,7 @@ class IhmRelaisRp2040:
         old_ser = self.ser
         self.reader = None
         self.ser = None
+        self.rp2040_ea_chrono_capable = False
         self._auto_connect_done = False
         self._manual_disconnect = False
         try:
@@ -5302,6 +5840,7 @@ class IhmRelaisRp2040:
             )
 
     def connect_serial(self, port_override=None, silent=False):
+        self.rp2040_ea_chrono_capable = False
         if self.is_connected():
             return True
         self._manual_disconnect = False
@@ -5338,7 +5877,7 @@ class IhmRelaisRp2040:
             self.set_connection_status_text(f"État connexion : connecté sur {port} à {baudrate} bauds")
             self.log(f"Connexion ouverte : {port} / {baudrate}")
             # On demande immédiatement un STATUS pour ne pas attendre l'AUTO 1 s.
-            # V2.12.2 : repartir d'un état LED neutre et forcer un refresh complet
+            # V2.12.3 : repartir d'un état LED neutre et forcer un refresh complet
             # dès la première trame, puis demander un STATUS immédiat.
             self.contacts_known_values = [None] * 8
             self.contacts_last_values = (None,) * 8
@@ -5436,7 +5975,10 @@ class IhmRelaisRp2040:
 
     def update_button_states(self):
         connected = self.is_connected()
-        voltage_busy = bool(getattr(self, "voltage_test_running", False))
+        voltage_busy = bool(
+            getattr(self, "voltage_test_running", False)
+            or getattr(self, "measure_all_active", False)
+        )
         self.pushButton_connecter.setEnabled(not connected)
         self.pushButton_deconnecter.setEnabled(connected)
         self.pushButton_connecter_production.setEnabled(not connected)
@@ -5453,7 +5995,6 @@ class IhmRelaisRp2040:
         if hasattr(self, "pushButton_auto_neutral_marche"):
             self.pushButton_auto_neutral_marche.setEnabled(connected and not self.auto_neutral_running and not self.auto_end_validation_pending and not voltage_busy)
             self.pushButton_auto_neutral_arret.setEnabled(connected and self.auto_neutral_running)
-            self.pushButton_auto_fin_essai.setEnabled(self.auto_end_validation_pending)
             self.pushButton_auto_lot_fini.setEnabled(not self.auto_neutral_running)
             self.lineEdit_auto_nb_inverseurs.setEnabled(not self.auto_neutral_running)
             self.update_auto_pulse_fields_state()
@@ -5670,6 +6211,7 @@ class IhmRelaisRp2040:
         elif line.startswith("ERREUR;"):
             self.label_etat_essai.setText("État : erreur")
         elif line.startswith("RP2040_RELAIS_28VDC_PRET"):
+            self.rp2040_ea_chrono_capable = "EA_CHRONO_NO_GP26" in line.upper()
             self.label_etat_essai.setText("État : prêt")
 
     def chrono_clear_results(self, clear_pair_cache=True, clear_oscillo_history=True):
@@ -5889,7 +6431,9 @@ class IhmRelaisRp2040:
                 self.update_button_states()
                 self.label_chrono_status.setText("Pré-positionnement RESET : pulse BR non mesuré avant chronométrie BE/BR.")
                 self.label_chrono_status.setStyleSheet("background-color: rgb(255,235,150); color: black; font-weight: bold; border: 2px solid rgb(160,100,0);")
-                self.send_command(f"PULSE_US;BR;{pulse_ms * 1000}")
+                source_suffix = ";EA" if getattr(self, "chrono_external_supply_mode", False) else ""
+                self.send_command(f"PULSE_US;BR;{pulse_ms * 1000}{source_suffix}")
+            return True
         except Exception as exc:
             self.chrono_measure_running = False
             self.chrono_auto_sequence_active = False
@@ -5899,6 +6443,7 @@ class IhmRelaisRp2040:
             self.label_chrono_status.setText(f"Mesure refusée : {exc}")
             self.label_chrono_status.setStyleSheet("background-color: rgb(220,0,0); color: white; font-weight: bold; border: 2px solid black;")
             QMessageBox.warning(self.window, "Chronométrie contacts", str(exc))
+            return False
 
     def chrono_start_next_auto_measure(self):
         if not self.chrono_auto_sequence_active or not self.chrono_auto_sequence_queue:
@@ -5957,12 +6502,13 @@ class IhmRelaisRp2040:
             self.update_button_states()
             self.label_chrono_status.setText(f"Mesure {action} en cours : capture {capture_ms} ms, pulse {pulse_ms} ms.")
             self.label_chrono_status.setStyleSheet("background-color: rgb(255,235,150); color: black; font-weight: bold; border: 2px solid rgb(160,100,0);")
+            source_suffix = ";EA" if getattr(self, "chrono_external_supply_mode", False) else ""
             if action == "MONO_ON":
-                self.send_command(f"MEASURE_MONO;ON;{capture_ms * 1000};{pulse_ms * 1000};{nb_inv}")
+                self.send_command(f"MEASURE_MONO;ON;{capture_ms * 1000};{pulse_ms * 1000};{nb_inv}{source_suffix}")
             elif action == "MONO_OFF":
-                self.send_command(f"MEASURE_MONO;OFF;{capture_ms * 1000};{pulse_ms * 1000};{nb_inv}")
+                self.send_command(f"MEASURE_MONO;OFF;{capture_ms * 1000};{pulse_ms * 1000};{nb_inv}{source_suffix}")
             else:
-                self.send_command(f"MEASURE_CONTACTS;{action};{capture_ms * 1000};{pulse_ms * 1000};{nb_inv}")
+                self.send_command(f"MEASURE_CONTACTS;{action};{capture_ms * 1000};{pulse_ms * 1000};{nb_inv}{source_suffix}")
         except Exception as exc:
             self.chrono_measure_running = False
             if not from_auto_sequence:
@@ -5972,6 +6518,8 @@ class IhmRelaisRp2040:
             self.label_chrono_status.setText(f"Mesure refusée : {exc}")
             self.label_chrono_status.setStyleSheet("background-color: rgb(220,0,0); color: white; font-weight: bold; border: 2px solid black;")
             QMessageBox.warning(self.window, "Chronométrie contacts", str(exc))
+            if getattr(self, "measure_all_active", False) and self.measure_all_phase == "CHRONO":
+                self.voltage_measure_all_fail(f"Chronométrie refusée : {exc}")
 
     def parse_measure_fields(self, line):
         fields = line.split(";")
@@ -6031,6 +6579,8 @@ class IhmRelaisRp2040:
             self.lineEdit_chrono_resultat.setText("DEFAUT")
             self.label_chrono_status.setText(f"Mesure refusée par le RP2040 : {reason}")
             self.label_chrono_status.setStyleSheet("background-color: rgb(220,0,0); color: white; font-weight: bold; border: 2px solid black;")
+            if getattr(self, "measure_all_active", False) and self.measure_all_phase == "CHRONO":
+                self.voltage_measure_all_fail(f"Chronométrie refusée par le RP2040 : {reason}")
 
     def chrono_parse_int(self, value, default=None):
         try:
@@ -7473,6 +8023,8 @@ class IhmRelaisRp2040:
             "dropped_events": dropped_events,
         }
         result = "OK" if global_ok else "DEFAUT"
+        if getattr(self, "measure_all_active", False) and self.measure_all_phase == "CHRONO":
+            self.measure_all_chrono_results[action] = result
         self.lineEdit_chrono_resultat.setText(result)
         try:
             self.chrono_save_measure(result, {
@@ -7486,6 +8038,9 @@ class IhmRelaisRp2040:
             saved = False
             self.label_chrono_status.setText(f"Mesure {action} terminée mais sauvegarde impossible : {exc}")
             self.label_chrono_status.setStyleSheet("background-color: rgb(220,0,0); color: white; font-weight: bold; border: 2px solid black;")
+        pair_complete = False
+        if not saved and getattr(self, "measure_all_active", False) and self.measure_all_phase == "CHRONO":
+            self.voltage_measure_all_fail("Sauvegarde de la chronométrie impossible.")
         if saved:
             if self.chrono_auto_sequence_active and self.chrono_auto_sequence_queue:
                 next_action = self.chrono_auto_sequence_queue[0]
@@ -7542,6 +8097,12 @@ class IhmRelaisRp2040:
                 self.label_chrono_status.setStyleSheet("background-color: rgb(220,0,0); color: white; font-weight: bold; border: 2px solid black;")
         self.tableWidget_chrono_results.resizeColumnsToContents()
         self.tableWidget_chrono_events.resizeColumnsToContents()
+        if (
+            saved and pair_complete
+            and getattr(self, "measure_all_active", False)
+            and self.measure_all_phase == "CHRONO"
+        ):
+            QTimer.singleShot(0, self.voltage_measure_all_finish)
 
     def initialiser_leds_contacts(self):
         # Onglet Cyclage : R1/R2/R3/R4 en vert, T1/T2/T3/T4 en rouge
@@ -7592,6 +8153,9 @@ class IhmRelaisRp2040:
             self.set_contact_led(self.label_chrono_led_t3, "T3", None, "red")
             self.set_contact_led(self.label_chrono_led_t4, "T4", None, "red")
 
+        if hasattr(self, "label_voltage_led_r1"):
+            self.voltage_refresh_contact_leds()
+
     def set_contact_led(self, label, titre, valeur, couleur):
         label.setText("")
         if valeur is None:
@@ -7633,7 +8197,7 @@ class IhmRelaisRp2040:
             label.setToolTip(f"{titre} : contact ouvert / non détecté")
 
     def update_contacts_feedback(self, reset1, reset2, reset3, reset4, latch1, latch2, latch3, latch4):
-        # V2.12.2 : si un champ est absent (None) dans une trame partielle, on
+        # V2.12.3 : si un champ est absent (None) dans une trame partielle, on
         # conserve la dernière valeur connue au lieu d'éteindre/griser la LED.
         recus = [reset1, reset2, reset3, reset4, latch1, latch2, latch3, latch4]
         fusion = []
@@ -7694,6 +8258,9 @@ class IhmRelaisRp2040:
             self.set_contact_led(self.label_chrono_led_t3, "T3", t3, "red")
             self.set_contact_led(self.label_chrono_led_t4, "T4", t4, "red")
 
+        if hasattr(self, "label_voltage_led_r1"):
+            self.voltage_refresh_contact_leds()
+
         def txt(v):
             if v is None:
                 return "--"
@@ -7727,7 +8294,7 @@ class IhmRelaisRp2040:
     def refresh_auto_leds_from_known_values(self):
         """Rafraîchit immédiatement les LED de l'onglet auto depuis le dernier état connu.
 
-        Objectif V2.12.2 :
+        Objectif V2.12.3 :
         - si N passe de 2 à 4, R3/R4/T3/T4 ne doivent pas rester grisées ;
         - si N passe de 4 à 2, R3/R4/T3/T4 doivent être grisées immédiatement ;
         - ne pas attendre une nouvelle trame STATUS ou CONTACT.
@@ -7935,7 +8502,7 @@ class IhmRelaisRp2040:
 
 
     # ------------------------------------------------------------------
-    # Neutral Screen Automatique V2.12.2
+    # Neutral Screen Automatique V2.12.3
     # ------------------------------------------------------------------
     def auto_update_tension_labels(self):
         tension_basse = self.texte_tension_basse_info()
@@ -8127,7 +8694,7 @@ class IhmRelaisRp2040:
 
     def default_scenarios_data(self):
         return {
-            "version": "2.12.2",
+            "version": "2.12.3",
             "scenarios": [
                 {"name":"Neutral screen norme","description":"Scénario strict MIL-PRF-39016H 4.8.7.7 : BE/BR max 3 avec vérification neutre, si pas neutre après 3 essais accepté, sinon BE puis vérification latch, répéter BE/BR avec vérification neutre, puis BR avec vérification reset.","steps":[
                     {"action":"BEBR","pulse_ms":10,"check":"NEUTRAL","max_attempts":3,"on_fail":"ACCEPT","description":"Recherche position neutre"},
@@ -8926,21 +9493,6 @@ class IhmRelaisRp2040:
 
     def set_auto_finish_validation_state(self, pending):
         self.auto_end_validation_pending = bool(pending)
-        self.pushButton_auto_fin_essai.setVisible(False)
-        if pending:
-            self.pushButton_auto_fin_essai.setEnabled(True)
-            self.pushButton_auto_fin_essai.setText("TEST FINI")
-            self.pushButton_auto_fin_essai.setStyleSheet(
-                "background-color: rgb(255,235,80); color: black; "
-                "font-size: 13pt; font-weight: bold; border: 4px solid rgb(180,80,0);"
-            )
-        else:
-            self.pushButton_auto_fin_essai.setEnabled(False)
-            self.pushButton_auto_fin_essai.setText("TEST FINI")
-            self.pushButton_auto_fin_essai.setStyleSheet(
-                "background-color: rgb(200,200,200); color: rgb(80,80,80); "
-                "font-size: 13pt; font-weight: bold; border: 3px solid rgb(120,120,120);"
-            )
 
     def show_auto_finish_validation_dialog(self, accepted):
         if not getattr(self, "auto_end_validation_pending", False):
@@ -9144,7 +9696,7 @@ class IhmRelaisRp2040:
         if self.runtime_step_index >= len(self.current_runtime_steps): self.auto_finish_accept_ok(); return
         step=self.current_runtime_steps[self.runtime_step_index]; check=self.normalize_check(step.get("check","NONE")); max_attempts=int(step.get("max_attempts",1)); on_fail=self.normalize_on_fail(step.get("on_fail","REJECT"))
         ok=True; detail="Aucune vérification"
-        # V2.12.2 : garde anti faux-ACCEPT. Si la vérif dépend des contacts
+        # V2.12.3 : garde anti faux-ACCEPT. Si la vérif dépend des contacts
         # mais que le retour RP2040 n'est pas encore connu, on rejette
         # explicitement au lieu de consommer un essai vers ACCEPT.
         if check in ("NEUTRAL","LATCH_RED","RESET_GREEN") and not self.auto_contacts_known():
@@ -9212,7 +9764,7 @@ class IhmRelaisRp2040:
 
 
     # ------------------------------------------------------------------
-    # Étalonnage ADS1115 + pont diviseur V2.12.2
+    # Étalonnage ADS1115 + pont diviseur V2.12.3
     # ------------------------------------------------------------------
     def voltage_calibration_init_db(self):
         self.chrono_init_db()
@@ -9485,6 +10037,106 @@ class IhmRelaisRp2040:
     def voltage_relay_type(self):
         return "BISTABLE" if "bistable" in self.comboBox_voltage_relay_type.currentText().strip().lower() else "MONOSTABLE"
 
+    def voltage_measure_settings_snapshot(self):
+        """Retourne les réglages opérateur réellement validés dans les spinbox."""
+        for spin in (
+            self.doubleSpinBox_voltage_vmax,
+            self.doubleSpinBox_voltage_ramp_up_s,
+            self.doubleSpinBox_voltage_ramp_down_s,
+            self.doubleSpinBox_voltage_current_limit,
+            self.doubleSpinBox_voltage_chrono_v,
+            self.doubleSpinBox_voltage_interphase_s,
+        ):
+            spin.interpretText()
+        return {
+            "vmax_v": float(self.doubleSpinBox_voltage_vmax.value()),
+            "ramp_up_s": float(self.doubleSpinBox_voltage_ramp_up_s.value()),
+            "ramp_down_s": float(self.doubleSpinBox_voltage_ramp_down_s.value()),
+            "current_limit_a": float(self.doubleSpinBox_voltage_current_limit.value()),
+            "chrono_supply_v": float(self.doubleSpinBox_voltage_chrono_v.value()),
+            "interphase_s": float(self.doubleSpinBox_voltage_interphase_s.value()),
+        }
+
+    def voltage_load_measure_settings(self):
+        """Recharge les derniers réglages de mesure depuis le dossier de l'EXE."""
+        path = Path(self.voltage_measure_settings_file)
+        if not path.exists():
+            return
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+            if not isinstance(data, dict):
+                return
+            spins = (
+                self.doubleSpinBox_voltage_vmax,
+                self.doubleSpinBox_voltage_ramp_up_s,
+                self.doubleSpinBox_voltage_ramp_down_s,
+                self.doubleSpinBox_voltage_current_limit,
+                self.doubleSpinBox_voltage_chrono_v,
+                self.doubleSpinBox_voltage_interphase_s,
+            )
+            self._voltage_loading_measure_settings = True
+            for spin in spins:
+                spin.blockSignals(True)
+            try:
+                if "vmax_v" in data:
+                    self.doubleSpinBox_voltage_vmax.setValue(float(data["vmax_v"]))
+                self.voltage_update_ramp_limits()
+                mapping = (
+                    ("ramp_up_s", self.doubleSpinBox_voltage_ramp_up_s),
+                    ("ramp_down_s", self.doubleSpinBox_voltage_ramp_down_s),
+                    ("current_limit_a", self.doubleSpinBox_voltage_current_limit),
+                    ("chrono_supply_v", self.doubleSpinBox_voltage_chrono_v),
+                    ("interphase_s", self.doubleSpinBox_voltage_interphase_s),
+                )
+                for key, spin in mapping:
+                    if key in data:
+                        spin.setValue(float(data[key]))
+            finally:
+                for spin in spins:
+                    spin.blockSignals(False)
+                self._voltage_loading_measure_settings = False
+        except Exception:
+            self._voltage_loading_measure_settings = False
+
+    def voltage_save_measure_settings(self, *_args):
+        """Sauvegarde les réglages opérateur sans interrompre l'essai en cas d'erreur disque."""
+        if getattr(self, "_voltage_loading_measure_settings", False):
+            return
+        try:
+            data = self.voltage_measure_settings_snapshot()
+            path = Path(self.voltage_measure_settings_file)
+            path.parent.mkdir(parents=True, exist_ok=True)
+            temporary = path.with_name(path.name + ".tmp")
+            temporary.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+            os.replace(temporary, path)
+        except Exception:
+            pass
+
+    def voltage_commit_measure_settings(self):
+        """Valide explicitement une saisie clavier et la rend persistante."""
+        for spin in (
+            self.doubleSpinBox_voltage_vmax,
+            self.doubleSpinBox_voltage_ramp_up_s,
+            self.doubleSpinBox_voltage_ramp_down_s,
+            self.doubleSpinBox_voltage_current_limit,
+            self.doubleSpinBox_voltage_chrono_v,
+            self.doubleSpinBox_voltage_interphase_s,
+        ):
+            spin.interpretText()
+        self.voltage_save_measure_settings()
+
+    def voltage_capture_run_settings(self):
+        """Fige les réglages au démarrage afin qu'ils restent identiques durant tout le cycle."""
+        self.voltage_run_settings = self.voltage_measure_settings_snapshot()
+        self.voltage_save_measure_settings()
+        return dict(self.voltage_run_settings)
+
+    def voltage_run_setting(self, key, fallback_widget):
+        try:
+            return float(self.voltage_run_settings.get(key, fallback_widget.value()))
+        except Exception:
+            return float(fallback_widget.value())
+
     def voltage_update_relay_type_ui(self, *_args):
         bistable = self.voltage_relay_type() == "BISTABLE"
         if bistable:
@@ -9505,7 +10157,31 @@ class IhmRelaisRp2040:
             headers = ["Inverseur", "Tension collage (V)", "Tension décollage (V)", "État"]
         self.label_voltage_interphase_note.setText("Délai réel contrôlé")
         self.tableWidget_voltage_results.setHorizontalHeaderLabels(headers)
+        self.voltage_update_ramp_limits()
         self.voltage_refresh_results_table()
+
+    def voltage_update_ramp_limits(self, *_args):
+        vmax = max(0.0, float(self.doubleSpinBox_voltage_vmax.value()))
+        raw_max_duration_s = vmax / EAPSU.MIN_VOLTAGE_SLOPE_V_PER_S
+        decimals = int(self.doubleSpinBox_voltage_ramp_up_s.decimals())
+        scale = 10 ** max(0, decimals)
+        rounded_down_s = math.floor(raw_max_duration_s * scale + 1e-12) / scale
+        max_duration_s = max(float(self.doubleSpinBox_voltage_ramp_up_s.minimum()), rounded_down_s)
+        for spin in (self.doubleSpinBox_voltage_ramp_up_s, self.doubleSpinBox_voltage_ramp_down_s):
+            spin.setMaximum(max_duration_s)
+            spin.setToolTip(
+                f"Pente minimale EA : {EAPSU.MIN_VOLTAGE_SLOPE_V_PER_S:.3f} V/s. "
+                f"Pour une rampe de {vmax:.3f} V, durée maximale autorisée : {max_duration_s:.3f} s."
+            )
+        self.label_voltage_accuracy.setText(
+            f"Premier passage avant rebonds | pente EA mini {EAPSU.MIN_VOLTAGE_SLOPE_V_PER_S:.3f} V/s "
+            f"| durée maxi actuelle {max_duration_s:.3f} s"
+        )
+        self.label_voltage_accuracy.setToolTip(
+            "La durée maximale est recalculée automatiquement à partir de Vmax. "
+            "Le contrôle de plausibilité ne remplace jamais la tension ADS1115 capturée."
+        )
+        return max_duration_s
 
     def voltage_refresh_ea_ports(self):
         current = self.comboBox_voltage_ea_port.currentText().strip() if hasattr(self, "comboBox_voltage_ea_port") else ""
@@ -9569,16 +10245,25 @@ class IhmRelaisRp2040:
     def voltage_disconnect_ea(self):
         if self.voltage_test_running:
             self.voltage_abort_test("Déconnexion EA demandée")
-        try:
-            if self.ea_psu.connected:
-                self.ea_psu.stop_generator(leave_mode=True)
-                self.ea_psu.output(False)
-                self.ea_psu.set_local()
-        except Exception:
-            pass
+        stop_confirmed = True
+        local_confirmed = True
+        if self.ea_psu.connected:
+            stop_confirmed = self.voltage_stop_ea_and_confirm("déconnexion EA", show_alert=True)
+            if stop_confirmed:
+                try:
+                    self.ea_psu.set_local()
+                except Exception:
+                    local_confirmed = False
         self.ea_psu.disconnect()
-        self.label_voltage_ea_status.setText("EA non connectée")
-        self.label_voltage_ea_status.setStyleSheet("background-color: rgb(95,95,95); color: white; font-weight: bold; border: 1px solid black;")
+        if stop_confirmed and local_confirmed:
+            self.label_voltage_ea_status.setText("EA non connectée - arrêt confirmé")
+            self.label_voltage_ea_status.setStyleSheet("background-color: rgb(95,95,95); color: white; font-weight: bold; border: 1px solid black;")
+        elif stop_confirmed:
+            self.label_voltage_ea_status.setText("EA non connectée - arrêt confirmé, retour local non confirmé")
+            self.label_voltage_ea_status.setStyleSheet("background-color: rgb(210,145,0); color: black; font-weight: bold; border: 2px solid rgb(130,80,0);")
+        else:
+            self.label_voltage_ea_status.setText("EA déconnectée - ARRÊT NON CONFIRMÉ : couper manuellement")
+            self.label_voltage_ea_status.setStyleSheet("background-color: rgb(190,0,0); color: white; font-weight: bold; border: 2px solid black;")
         self.voltage_update_button_states()
 
     def voltage_copy_from_chrono(self):
@@ -9594,6 +10279,377 @@ class IhmRelaisRp2040:
         )
         self.label_voltage_status.setText("Informations et type de relais repris depuis l'onglet Chronométrie contacts.")
 
+    def voltage_measure_all_context(self):
+        """Fige l'identification, le type et la tension EA de chronométrie."""
+        meta = self.voltage_metadata()
+        settings = self.voltage_measure_settings_snapshot()
+        return {
+            **meta,
+            "relay_type": self.voltage_relay_type(),
+            "nb_inverseurs": int(self.spinBox_voltage_nb_inverseurs.value()),
+            "chrono_supply_v": float(settings["chrono_supply_v"]),
+        }
+
+    def voltage_apply_measure_all_context_to_chrono(self, context=None):
+        """Recopie le contexte tension vers l'onglet chronométrie sans auto-remplissage parasite."""
+        context = dict(context or self.measure_all_context or self.voltage_measure_all_context())
+        self._chrono_lot_autofill_running = True
+        try:
+            self.lineEdit_chrono_lot.setText(str(context.get("lot", "")))
+            self.lineEdit_chrono_relais.setText(str(context.get("relais", "")))
+            self.lineEdit_chrono_sn.setText(str(context.get("sn", "")))
+            self.lineEdit_chrono_date.setText(str(context.get("date_test", "")) or QDate.currentDate().toString("dd/MM/yyyy"))
+            self.lineEdit_chrono_ambiance.setText(str(context.get("ambiance_c", "")))
+            self.lineEdit_chrono_nom_test.setText(str(context.get("nom_test", "")))
+        finally:
+            self._chrono_lot_autofill_running = False
+        self.comboBox_chrono_type_relais.setCurrentText(
+            "Monostable" if str(context.get("relay_type", "")).upper() == "MONOSTABLE" else "Bistable"
+        )
+        self.spinBox_chrono_nb_inverseurs.setValue(max(1, min(4, int(context.get("nb_inverseurs", 1)))))
+        self.chrono_update_relay_type_ui()
+
+    def voltage_validate_measure_all_chrono_settings(self):
+        """Valide les paramètres chronométrie avant de commencer la phase tension."""
+        pulse_ms = int(self.spinBox_chrono_pulse_ms.value())
+        capture_ms = int(self.spinBox_chrono_capture_ms.value())
+        if capture_ms < pulse_ms:
+            raise ValueError(
+                "Mesure totale impossible : dans l'onglet Chronométrie contacts, "
+                "la fenêtre de capture doit être supérieure ou égale à la durée pulse / maintien."
+            )
+        self.chrono_float_ms(self.lineEdit_chrono_limite_temps_ms, "Sanction temps max")
+        self.chrono_float_ms(self.lineEdit_chrono_limite_rebond_ms, "Sanction rebond max")
+        self.chrono_validate_metadata()
+
+    def voltage_start_measure_all(self):
+        """Lance les tensions puis la chronométrie, alimentées uniquement par l'EA."""
+        if getattr(self, "measure_all_active", False) or self.voltage_test_running or self.chrono_measure_running:
+            QMessageBox.warning(self.window, "Mesurer tout", "Une mesure est déjà en cours.")
+            return
+        try:
+            context = self.voltage_measure_all_context()
+            self.voltage_apply_measure_all_context_to_chrono(context)
+            self.voltage_validate_measure_all_chrono_settings()
+            if not self.is_connected():
+                raise RuntimeError("RP2040 non connecté.")
+            if not self.ea_psu.connected:
+                raise RuntimeError("Alimentation EA non connectée.")
+            if not getattr(self, "rp2040_ea_chrono_capable", False):
+                raise RuntimeError(
+                    "Firmware RP2040 incompatible avec la chronométrie alimentée par l'EA. "
+                    "Téléverser le firmware V2.12.3 R8 contenant EA_CHRONO_NO_GP26."
+                )
+        except Exception as exc:
+            QMessageBox.warning(self.window, "Mesurer tout", str(exc))
+            return
+
+        self.measure_all_active = True
+        self.measure_all_phase = "VOLTAGE"
+        self.measure_all_context = dict(context)
+        self.measure_all_chrono_results = {}
+        self.measure_all_static_confirmation = {}
+        self.chrono_external_supply_mode = False
+        chrono_v = float(context.get("chrono_supply_v", 0.0))
+        self.label_voltage_status.setText(
+            f"MESURE TOTALE 1/2 — cycle tensions EA en cours. Ensuite l'EA sera réglée "
+            f"automatiquement à {chrono_v:.3f} V pour la chronométrie."
+        )
+        self.label_voltage_status.setStyleSheet(
+            "background-color: rgb(0,90,160); color: white; font-weight: bold; border: 2px solid rgb(0,45,90);"
+        )
+        self.update_button_states()
+        self.voltage_start_test("CYCLE")
+        if not self.voltage_test_running and self.measure_all_active:
+            self.voltage_measure_all_fail("Le cycle de tensions n'a pas pu démarrer.")
+
+    @staticmethod
+    def voltage_format_static_confirmation(info):
+        info = dict(info or {})
+        measured = info.get("measured_voltage_v")
+        measured_text = "non relue" if measured is None else f"{float(measured):.3f} V"
+        errors = "; ".join(
+            str(item) for item in info.get("errors", []) if str(item).strip()
+        ) or "confirmation absente"
+        return (
+            f"Cible={float(info.get('target_voltage_v') or 0.0):.3f} V, "
+            f"mesurée={measured_text}, sortie={info.get('output_state') or '--'}, "
+            f"générateur={info.get('generator_selection') or '--'}, "
+            f"SCPI={info.get('scpi_error') or '--'}. Détail : {errors}"
+        )
+
+    def voltage_measure_all_start_chrono(self):
+        """Passe automatiquement l'EA en tension continue puis lance la chronométrie."""
+        if not self.measure_all_active:
+            return
+        self.measure_all_phase = "EA_STATIC_PREP"
+        target_v = float(self.measure_all_context.get(
+            "chrono_supply_v", self.doubleSpinBox_voltage_chrono_v.value()
+        ))
+        current_limit_a = self.voltage_run_setting(
+            "current_limit_a", self.doubleSpinBox_voltage_current_limit
+        )
+        self.label_voltage_status.setText(
+            f"MESURE TOTALE — préparation automatique de l'EA à {target_v:.3f} V "
+            "pour la chronométrie contacts..."
+        )
+        self.label_voltage_status.setStyleSheet(
+            "background-color: rgb(0,90,160); color: white; font-weight: bold; border: 2px solid rgb(0,45,90);"
+        )
+        try:
+            info = self.ea_psu.configure_static_output_and_confirm(target_v, current_limit_a)
+        except Exception as exc:
+            info = {"confirmed": False, "target_voltage_v": target_v, "errors": [str(exc)]}
+        self.measure_all_static_confirmation = dict(info)
+        if not bool(info.get("confirmed")):
+            diagnostic = self.voltage_format_static_confirmation(info)
+            self.voltage_measure_all_fail(
+                "La tension continue de chronométrie n'a pas été confirmée. " + diagnostic
+            )
+            return
+
+        self.chrono_external_supply_mode = True
+        self.measure_all_phase = "CHRONO"
+        self.voltage_apply_measure_all_context_to_chrono(self.measure_all_context)
+        self.measure_all_chrono_results = {}
+        measured_v = float(info.get("measured_voltage_v") or target_v)
+        self.label_voltage_status.setText(
+            f"MESURE TOTALE 2/2 — EA confirmée à {measured_v:.3f} V. "
+            "Chronométrie contacts automatique en cours, source fixe neutral screen isolée."
+        )
+        self.label_voltage_status.setStyleSheet(
+            "background-color: rgb(0,90,160); color: white; font-weight: bold; border: 2px solid rgb(0,45,90);"
+        )
+        started = self.chrono_start_measure_be_br()
+        if started is False or not self.chrono_measure_running:
+            self.voltage_measure_all_fail(
+                "Les tensions ont été sauvegardées, mais la chronométrie EA n'a pas pu démarrer."
+            )
+
+    def voltage_measure_all_finish(self):
+        if not self.measure_all_active or self.measure_all_phase != "CHRONO":
+            return
+        original_sn = str(self.measure_all_context.get("sn", ""))
+        next_sn = self.lineEdit_chrono_sn.text().strip()
+        if next_sn:
+            self.lineEdit_voltage_sn.setText(next_sn)
+        chrono_values = list(self.measure_all_chrono_results.values())
+        chrono_result = "DEFAUT" if any(value != "OK" for value in chrono_values) else "OK"
+        voltage_result = str(getattr(self, "voltage_last_saved_result", "") or "OK")
+        stop_confirmed = self.voltage_stop_ea_and_confirm("fin de MESURER TOUT", show_alert=False)
+        self.chrono_external_supply_mode = False
+        self.measure_all_active = False
+        self.measure_all_phase = ""
+        self.measure_all_context = {}
+        self.measure_all_chrono_results = {}
+        self.update_button_states()
+        message = (
+            f"MESURE TOTALE TERMINÉE — SN {original_sn} : tensions={voltage_result}, "
+            f"chronométrie={chrono_result}, arrêt EA={'confirmé' if stop_confirmed else 'NON CONFIRMÉ'}."
+        )
+        if next_sn and next_sn != original_sn:
+            message += f" SN suivant prêt : {next_sn}."
+        if not stop_confirmed:
+            message += " COUPER MANUELLEMENT L'ALIMENTATION EA."
+        self.label_voltage_status.setText(message)
+        self.label_voltage_status.setStyleSheet(
+            "background-color: rgb(0,150,70); color: white; font-weight: bold; border: 2px solid rgb(0,80,35);"
+            if chrono_result == "OK" and voltage_result == "OK" and stop_confirmed else
+            "background-color: rgb(220,145,0); color: black; font-weight: bold; border: 2px solid rgb(130,80,0);"
+        )
+        if not stop_confirmed:
+            self.big_message_box(
+                "Sécurité alimentation EA",
+                "ARRÊT EA NON CONFIRMÉ",
+                self.voltage_last_stop_diagnostic or message,
+                ok_text="J'AI COUPÉ MANUELLEMENT",
+                icon=QMessageBox.Critical,
+            )
+
+    def voltage_measure_all_fail(self, reason, preserve_status=False):
+        if not getattr(self, "measure_all_active", False):
+            return
+        stop_needed = bool(self.chrono_external_supply_mode or self.measure_all_phase in ("EA_STATIC_PREP", "CHRONO"))
+        stop_confirmed = True
+        if stop_needed and getattr(self, "ea_psu", None) is not None and self.ea_psu.connected:
+            stop_confirmed = self.voltage_stop_ea_and_confirm("interruption de MESURER TOUT", show_alert=False)
+        self.chrono_external_supply_mode = False
+        self.measure_all_active = False
+        self.measure_all_phase = ""
+        self.measure_all_context = {}
+        self.measure_all_chrono_results = {}
+        self.chrono_auto_sequence_active = False
+        self.chrono_auto_sequence_queue = []
+        self.chrono_auto_prereset_pending = False
+        self.chrono_measure_running = False
+        self.update_button_states()
+        if not preserve_status:
+            suffix = "" if stop_confirmed else " — ARRÊT EA NON CONFIRMÉ, COUPER MANUELLEMENT"
+            self.label_voltage_status.setText(f"MESURE TOTALE INTERROMPUE — {reason}{suffix}")
+            self.label_voltage_status.setStyleSheet(
+                "background-color: rgb(190,0,0); color: white; font-weight: bold; border: 2px solid black;"
+            )
+        if not stop_confirmed:
+            self.big_message_box(
+                "Sécurité alimentation EA",
+                "ARRÊT EA NON CONFIRMÉ",
+                self.voltage_last_stop_diagnostic or str(reason),
+                ok_text="J'AI COUPÉ MANUELLEMENT",
+                icon=QMessageBox.Critical,
+            )
+
+    def voltage_stop_clicked(self):
+        """Le bouton d'arrêt couvre la phase tension et la phase chronométrie de MESURER TOUT."""
+        if getattr(self, "measure_all_active", False):
+            if self.voltage_test_running:
+                self.voltage_abort_test("Mesure totale arrêtée par l'opérateur.")
+                return
+            try:
+                if self.is_connected():
+                    self.send_command("STOP")
+            except Exception:
+                pass
+            self.voltage_measure_all_fail("arrêt demandé par l'opérateur")
+            return
+        self.voltage_abort_test()
+
+    def voltage_reset_assessment_state(self):
+        """Réinitialise les verdicts propres à un essai de tension."""
+        self.voltage_plausibility = {"PICKUP": {}, "DROPOUT": {}}
+        self.voltage_result_override = ""
+        self.voltage_ea_stop_confirmation = self.voltage_empty_stop_confirmation()
+        self.voltage_last_stop_diagnostic = ""
+        self.voltage_last_saved_result = ""
+
+    @staticmethod
+    def voltage_empty_stop_confirmation():
+        return {
+            "confirmed": None,
+            "generator_selection_before": "",
+            "generator_selection": "",
+            "generator_state": "",
+            "output_state": "",
+            "measured_voltage_v": None,
+            "scpi_error": "",
+            "errors": [],
+            "context": "",
+            "poll_count": 0,
+            "confirmation_elapsed_s": 0.0,
+        }
+
+    def voltage_stop_ea_and_confirm(self, context, show_alert=False):
+        info = self.voltage_empty_stop_confirmation()
+        info["context"] = str(context or "arrêt")
+        try:
+            if not self.ea_psu.connected:
+                raise RuntimeError("Alimentation EA non connectée.")
+            checked = self.ea_psu.safe_stop_and_confirm()
+            info.update(checked)
+        except Exception as exc:
+            info["confirmed"] = False
+            info["errors"] = list(info.get("errors", [])) + [str(exc)]
+        self.voltage_ea_stop_confirmation = info
+        if info.get("confirmed"):
+            self.voltage_last_stop_diagnostic = ""
+            return True
+
+        self.voltage_result_override = "ARRET_EA_NON_CONFIRME"
+        voltage = info.get("measured_voltage_v")
+        voltage_text = "non relue" if voltage is None else f"{float(voltage):.3f} V"
+        errors = "; ".join(str(item) for item in info.get("errors", []) if str(item).strip()) or "confirmation absente"
+        elapsed = float(info.get("confirmation_elapsed_s") or 0.0)
+        polls = int(info.get("poll_count") or 0)
+        alert = (
+            "ARRÊT EA NON CONFIRMÉ — COUPER MANUELLEMENT L'ALIMENTATION. "
+            f"Contexte : {info['context']}. Sortie={info.get('output_state') or '--'}, "
+            f"générateur initial={info.get('generator_selection_before') or '--'}, "
+            f"générateur final={info.get('generator_selection') or info.get('generator_state') or '--'}, "
+            f"tension={voltage_text}, contrôles={polls}, durée={elapsed:.2f} s, "
+            f"SCPI={info.get('scpi_error') or '--'}. Détail : {errors}"
+        )
+        self.voltage_last_stop_diagnostic = alert
+        if hasattr(self, "label_voltage_ea_status"):
+            self.label_voltage_ea_status.setText(alert)
+            self.label_voltage_ea_status.setStyleSheet(
+                "background-color: rgb(190,0,0); color: white; font-weight: bold; border: 2px solid black;"
+            )
+        if show_alert:
+            self.big_message_box(
+                "Sécurité alimentation EA",
+                "ARRÊT EA NON CONFIRMÉ",
+                alert,
+                ok_text="J'AI COUPÉ MANUELLEMENT",
+                icon=QMessageBox.Critical,
+            )
+        return False
+
+    def voltage_evaluate_plausibility(self, mode):
+        mode = str(mode).upper()
+        info = self.voltage_ramp_info if self.voltage_ramp_info and self.voltage_ramp_info.get("mode") == mode else None
+        measured = self.voltage_results.get(mode, {}).get("GLOBAL")
+        elapsed_us = self.voltage_time_results.get(mode, {}).get("GLOBAL")
+        result = {
+            "status": "NON_VERIFIE",
+            "mode": mode,
+            "measured_v": measured,
+            "elapsed_s": None if elapsed_us is None else float(elapsed_us) / 1_000_000.0,
+            "expected_elapsed_s": None,
+            "elapsed_error_s": None,
+            "tolerance_s": None,
+            "detail": "Données insuffisantes pour le contrôle de plausibilité.",
+        }
+        if not info or measured is None or elapsed_us is None:
+            self.voltage_plausibility[mode] = result
+            return result
+
+        start_v = float(info["start_v"])
+        end_v = float(info["end_v"])
+        duration_s = max(0.0001, float(info["duration_s"]))
+        span_v = end_v - start_v
+        if abs(span_v) < 1e-12:
+            result["detail"] = "Rampe sans écart de tension : plausibilité temporelle impossible."
+            self.voltage_plausibility[mode] = result
+            return result
+
+        fraction = (float(measured) - start_v) / span_v
+        expected_elapsed_s = duration_s * fraction
+        elapsed_s = float(elapsed_us) / 1_000_000.0
+        elapsed_error_s = elapsed_s - expected_elapsed_s
+        tolerance_s = max(VOLTAGE_PLAUSIBILITY_MIN_TOL_S, duration_s * VOLTAGE_PLAUSIBILITY_REL_TOL)
+        voltage_margin_v = max(0.100, abs(span_v) * 0.010)
+        low_v = min(start_v, end_v) - voltage_margin_v
+        high_v = max(start_v, end_v) + voltage_margin_v
+        in_voltage_range = low_v <= float(measured) <= high_v
+        time_ok = -tolerance_s <= elapsed_error_s <= tolerance_s
+
+        result.update({
+            "expected_elapsed_s": expected_elapsed_s,
+            "elapsed_error_s": elapsed_error_s,
+            "tolerance_s": tolerance_s,
+            "fraction": fraction,
+            "start_v": start_v,
+            "end_v": end_v,
+            "duration_s": duration_s,
+        })
+        if in_voltage_range and time_ok:
+            result["status"] = "OK"
+            result["detail"] = (
+                f"Plausibilité OK : t mesuré {elapsed_s:.3f} s, t théorique {expected_elapsed_s:.3f} s, "
+                f"écart {elapsed_error_s:+.3f} s, tolérance ±{tolerance_s:.3f} s."
+            )
+        else:
+            result["status"] = "INCOHERENT"
+            causes = []
+            if not in_voltage_range:
+                causes.append(f"tension {float(measured):.3f} V hors rampe {start_v:.3f}→{end_v:.3f} V")
+            if not time_ok:
+                causes.append(
+                    f"écart temporel {elapsed_error_s:+.3f} s supérieur à ±{tolerance_s:.3f} s"
+                )
+            result["detail"] = "Plausibilité incohérente : " + "; ".join(causes) + "."
+        self.voltage_plausibility[mode] = result
+        return result
+
     def voltage_metadata(self):
         data = {
             "lot": self.lineEdit_voltage_lot.text().strip(),
@@ -9607,6 +10663,132 @@ class IhmRelaisRp2040:
         if missing:
             raise ValueError("Champs obligatoires manquants : " + ", ".join(missing))
         return data
+
+    def voltage_on_nb_inverseurs_changed(self):
+        """Rafraîchit immédiatement la table et les LED après changement de N."""
+        self.voltage_refresh_results_table()
+        self.voltage_refresh_contact_leds()
+
+    def voltage_refresh_contact_leds(self):
+        """Affiche les 8 états de contact dans l'onglet tension.
+
+        Les inverseurs au-delà du nombre sélectionné restent visibles mais sont
+        volontairement grisés afin de ne pas les confondre avec un état inconnu.
+        """
+        if not hasattr(self, "label_voltage_led_r1"):
+            return
+        nb = int(self.spinBox_voltage_nb_inverseurs.value()) if hasattr(self, "spinBox_voltage_nb_inverseurs") else 0
+        values = list(getattr(self, "contacts_known_values", [None] * 8))
+        while len(values) < 8:
+            values.append(None)
+        labels_r = [self.label_voltage_led_r1, self.label_voltage_led_r2, self.label_voltage_led_r3, self.label_voltage_led_r4]
+        labels_t = [self.label_voltage_led_t1, self.label_voltage_led_t2, self.label_voltage_led_t3, self.label_voltage_led_t4]
+        for index in range(4):
+            inv = index + 1
+            if inv > nb:
+                self.voltage_set_contact_indicator(labels_r[index], f"R{inv}", None, "green", selected=False)
+                self.voltage_set_contact_indicator(labels_t[index], f"T{inv}", None, "red", selected=False)
+                continue
+            self.voltage_set_contact_indicator(labels_r[index], f"R{inv}", values[index], "green")
+            self.voltage_set_contact_indicator(labels_t[index], f"T{inv}", values[4 + index], "red")
+
+    @staticmethod
+    def voltage_set_contact_indicator(label, title, value, color, selected=True):
+        """LED circulaire réelle pour l'état direct des contacts de l'onglet tensions."""
+        # Ne pas utiliser le caractère Unicode « ● » : sa taille visible dépend
+        # de la police et reste beaucoup plus petite que le QLabel. Le fond du
+        # QLabel constitue directement le rond, avec un diamètre réel de 18 px.
+        diameter = 18
+        label.setFixedSize(diameter, diameter)
+        label.setAlignment(Qt.AlignCenter)
+        label.setText("")
+        if not selected:
+            rgb = "165,165,165"
+            border_rgb = "125,125,125"
+            tooltip = f"{title} : inverseur non sélectionné"
+        elif value is None:
+            rgb = "95,95,95"
+            border_rgb = "55,55,55"
+            tooltip = f"{title} : état inconnu"
+        elif str(value) == "1":
+            rgb = "0,205,75" if color == "green" else "225,0,0"
+            border_rgb = "0,125,45" if color == "green" else "145,0,0"
+            tooltip = f"{title} : contact fermé détecté"
+        else:
+            rgb = "25,85,45" if color == "green" else "90,25,25"
+            border_rgb = "15,55,30" if color == "green" else "55,15,15"
+            tooltip = f"{title} : contact ouvert / non détecté"
+        label.setToolTip(tooltip)
+        label.setStyleSheet(
+            f"background-color: rgb({rgb}); "
+            f"border: 1px solid rgb({border_rgb}); "
+            "border-radius: 9px; padding: 0px; margin: 0px;"
+        )
+
+    @staticmethod
+    def voltage_contact_state_text(value):
+        if value is None:
+            return "inconnu"
+        return "fermé" if str(value) == "1" else "ouvert"
+
+    def voltage_timeout_contact_diagnostic(self):
+        """Construit le message opérateur lorsqu'aucun passage global n'est validé."""
+        mode = str(getattr(self, "voltage_active_scan", "") or "").upper()
+        if mode not in ("PICKUP", "DROPOUT"):
+            mode = "PICKUP" if str(getattr(self, "voltage_requested_mode", "")).upper() == "PICKUP" else "DROPOUT"
+        relay_type = self.voltage_relay_type()
+        nb = int(self.spinBox_voltage_nb_inverseurs.value())
+        vmax = self.voltage_run_setting("vmax_v", self.doubleSpinBox_voltage_vmax)
+        stable_ms = int(self.spinBox_voltage_stable_ms.value())
+        values = list(getattr(self, "contacts_known_values", [None] * 8))
+        while len(values) < 8:
+            values.append(None)
+
+        target_work = mode == "PICKUP"
+        expected_r = "0" if target_work else "1"
+        expected_t = "1" if target_work else "0"
+        failures = []
+        states = []
+        for index in range(nb):
+            inv = index + 1
+            r_value = None if values[index] is None else str(values[index])
+            t_value = None if values[4 + index] is None else str(values[4 + index])
+            states.append(
+                f"I{inv}: R{inv}={self.voltage_contact_state_text(r_value)}, "
+                f"T{inv}={self.voltage_contact_state_text(t_value)}"
+            )
+            issues = []
+            if r_value is None:
+                issues.append(f"R{inv} inconnu")
+            elif r_value != expected_r:
+                issues.append(f"R{inv} encore fermé" if expected_r == "0" else f"R{inv} non fermé")
+            if t_value is None:
+                issues.append(f"T{inv} inconnu")
+            elif t_value != expected_t:
+                issues.append(f"T{inv} non fermé" if expected_t == "1" else f"T{inv} encore fermé")
+            if issues:
+                failures.append(f"Inverseur {inv} : " + ", ".join(issues))
+
+        if mode == "PICKUP":
+            title = f"ÉCHEC COLLAGE / BE À VMAX ({vmax:.3f} V)"
+            target_text = "position travail attendue : R ouverts et T fermés"
+        elif relay_type == "BISTABLE":
+            title = f"ÉCHEC DÉCLENCHEMENT / BR À VMAX ({vmax:.3f} V)"
+            target_text = "position repos attendue : R fermés et T ouverts"
+        else:
+            title = "ÉCHEC DÉCOLLAGE À 0 V"
+            target_text = "position repos attendue : R fermés et T ouverts"
+
+        if failures:
+            detail = "Contacts bloquants :\n- " + "\n- ".join(failures)
+        else:
+            detail = (
+                f"Les contacts sont actuellement dans la position demandée, mais la position globale "
+                f"n'a pas été stable pendant {stable_ms} ms avant la fin du délai. "
+                "Cause possible : rebonds persistants ou basculement trop tardif."
+            )
+        state_text = "États finaux : " + " | ".join(states) if states else "États finaux : aucun contact sélectionné."
+        return title, f"{target_text}.\n\n{detail}\n\n{state_text}"
 
     def voltage_contacts_expected(self, mode):
         nb = int(self.spinBox_voltage_nb_inverseurs.value())
@@ -9661,10 +10843,21 @@ class IhmRelaisRp2040:
                 raise ValueError("La durée de retour BE/BR doit être au moins 0,3 s.")
             if float(self.doubleSpinBox_voltage_interphase_s.value()) < 3.0:
                 raise ValueError("L'attente entre opérations doit être au moins 3,0 s pour laisser l'EA valider la seconde rampe.")
+            max_duration_s = self.voltage_update_ramp_limits()
+            for label, spin in (
+                ("montée BE", self.doubleSpinBox_voltage_ramp_up_s),
+                ("retour BE/BR", self.doubleSpinBox_voltage_ramp_down_s),
+            ):
+                if float(spin.value()) > max_duration_s + 1e-9:
+                    raise ValueError(
+                        f"Durée de {label} trop longue pour la pente minimale EA : "
+                        f"maximum {max_duration_s:.3f} s avec Vmax={self.doubleSpinBox_voltage_vmax.value():.3f} V."
+                    )
         except Exception as exc:
             QMessageBox.warning(self.window, "Collage / décollage", str(exc))
             return
 
+        self.voltage_capture_run_settings()
         self.voltage_requested_mode = str(requested_mode).upper()
         self.voltage_active_scan = ""
         self._voltage_bistable_pickup_prepositioned = False
@@ -9680,6 +10873,10 @@ class IhmRelaisRp2040:
         self.voltage_capture_policy = ""
         self.voltage_effective_ramp_s = {"PICKUP": None, "DROPOUT": None}
         self.voltage_ramp_readbacks = {"PICKUP": {}, "DROPOUT": {}}
+        # Chaque essai repart avec un état métrologique et sécurité indépendant.
+        # Sans cette remise à zéro, un verdict de l'essai précédent pourrait
+        # contaminer la sauvegarde suivante.
+        self.voltage_reset_assessment_state()
         if self.voltage_requested_mode in ("PICKUP", "CYCLE"):
             self.voltage_results = {"PICKUP": {}, "DROPOUT": {}}
             self.voltage_raw_results = {"PICKUP": {}, "DROPOUT": {}}
@@ -9693,9 +10890,9 @@ class IhmRelaisRp2040:
         self.voltage_update_button_states()
         try:
             self.ea_psu.set_remote()
-            self.ea_psu.stop_generator(leave_mode=True)
-            self.ea_psu.output(False)
-            self.ea_psu.send(f"CURR {self.doubleSpinBox_voltage_current_limit.value():.6f}")
+            if not self.voltage_stop_ea_and_confirm("préparation avant mesure", show_alert=False):
+                raise RuntimeError("L'arrêt initial de l'alimentation EA n'est pas confirmé.")
+            self.ea_psu.send(f"CURR {self.voltage_run_setting('current_limit_a', self.doubleSpinBox_voltage_current_limit):.6f}")
             self.ea_psu.send("POW MAX")
             self.ea_psu.send("VOLT 0")
             self.send_command("VOLTAGE_SCAN;CANCEL")
@@ -9723,9 +10920,11 @@ class IhmRelaisRp2040:
         target_position = str(target_position).upper()
         coil = "BR" if target_position == "REST" else "BE"
         try:
-            vmax = float(self.doubleSpinBox_voltage_vmax.value())
-            self.ea_psu.stop_generator(leave_mode=True)
-            self.ea_psu.send(f"CURR {self.doubleSpinBox_voltage_current_limit.value():.6f}")
+            vmax = self.voltage_run_setting("vmax_v", self.doubleSpinBox_voltage_vmax)
+            # L'arrêt initial a déjà confirmé SEL=NONE. Pour ce prépositionnement
+            # statique, ne pas envoyer WAVE:STAT STOP hors mode générateur.
+            self.ea_psu.send("FUNC:GEN:SEL NONE")
+            self.ea_psu.send(f"CURR {self.voltage_run_setting('current_limit_a', self.doubleSpinBox_voltage_current_limit):.6f}")
             self.ea_psu.send(f"VOLT {vmax:.6f}")
             self.ea_psu.output(True)
             self.voltage_set_coil_hold(coil)
@@ -9734,8 +10933,9 @@ class IhmRelaisRp2040:
                 if not self.voltage_test_running:
                     return
                 self.voltage_set_coil_hold("OFF")
-                self.ea_psu.output(False)
-                self.ea_psu.send("VOLT 0")
+                if not self.voltage_stop_ea_and_confirm("fin prépositionnement bistable", show_alert=False):
+                    self.voltage_abort_test("Prépositionnement : arrêt EA non confirmé.")
+                    return
                 QTimer.singleShot(350, callback)
             QTimer.singleShot(350, finish_preposition)
         except Exception as exc:
@@ -9758,8 +10958,8 @@ class IhmRelaisRp2040:
             self.voltage_active_scan = "PICKUP"
             self.voltage_configure_ramp(
                 0.0,
-                self.doubleSpinBox_voltage_vmax.value(),
-                self.doubleSpinBox_voltage_ramp_up_s.value(),
+                self.voltage_run_setting("vmax_v", self.doubleSpinBox_voltage_vmax),
+                self.voltage_run_setting("ramp_up_s", self.doubleSpinBox_voltage_ramp_up_s),
                 mode="PICKUP",
                 nb_inverseurs=nb,
             )
@@ -9773,10 +10973,10 @@ class IhmRelaisRp2040:
             self.voltage_preposition_bistable("WORK", self.voltage_begin_dropout)
             return
         try:
-            vmax = float(self.doubleSpinBox_voltage_vmax.value())
+            vmax = self.voltage_run_setting("vmax_v", self.doubleSpinBox_voltage_vmax)
             self.voltage_set_coil_hold("BE")
             self.ea_psu.set_remote()
-            self.ea_psu.send(f"CURR {self.doubleSpinBox_voltage_current_limit.value():.6f}")
+            self.ea_psu.send(f"CURR {self.voltage_run_setting('current_limit_a', self.doubleSpinBox_voltage_current_limit):.6f}")
             self.ea_psu.send(f"VOLT {vmax:.6f}")
             self.ea_psu.output(True)
             self.label_voltage_status.setText(f"Préconditionnement monostable à {vmax:.3f} V - attente position travail.")
@@ -9799,8 +10999,8 @@ class IhmRelaisRp2040:
                 # En bistable le second champ de l'IHM est bien la durée de montée BR.
                 self.voltage_configure_ramp(
                     0.0,
-                    self.doubleSpinBox_voltage_vmax.value(),
-                    self.doubleSpinBox_voltage_ramp_down_s.value(),
+                    self.voltage_run_setting("vmax_v", self.doubleSpinBox_voltage_vmax),
+                    self.voltage_run_setting("ramp_down_s", self.doubleSpinBox_voltage_ramp_down_s),
                     mode="DROPOUT",
                     nb_inverseurs=nb,
                     not_before=not_before,
@@ -9808,9 +11008,9 @@ class IhmRelaisRp2040:
             else:
                 self.voltage_set_coil_hold("BE")
                 self.voltage_configure_ramp(
-                    self.doubleSpinBox_voltage_vmax.value(),
+                    self.voltage_run_setting("vmax_v", self.doubleSpinBox_voltage_vmax),
                     0.0,
-                    self.doubleSpinBox_voltage_ramp_down_s.value(),
+                    self.voltage_run_setting("ramp_down_s", self.doubleSpinBox_voltage_ramp_down_s),
                     mode="DROPOUT",
                     nb_inverseurs=nb,
                     not_before=not_before,
@@ -9829,7 +11029,7 @@ class IhmRelaisRp2040:
         )
         self.ea_psu.configure_voltage_ramp(
             start_v, end_v, duration_s, hold_s,
-            self.doubleSpinBox_voltage_current_limit.value(),
+            self.voltage_run_setting("current_limit_a", self.doubleSpinBox_voltage_current_limit),
         )
         self.voltage_pending_ramp = {
             "start_v": start_v,
@@ -9902,27 +11102,29 @@ class IhmRelaisRp2040:
             interphase_text = ""
             if pending.get("not_before") is not None and self.voltage_interphase_origin_monotonic is not None:
                 self.voltage_interphase_actual_s = self.voltage_ramp_started_monotonic - self.voltage_interphase_origin_monotonic
-                requested_interphase = float(self.doubleSpinBox_voltage_interphase_s.value())
+                requested_interphase = self.voltage_run_setting("interphase_s", self.doubleSpinBox_voltage_interphase_s)
                 interphase_text = f" Attente réelle : {self.voltage_interphase_actual_s:.3f} s (demandée {requested_interphase:.3f} s)."
             self.voltage_ramp_info = pending
             self.voltage_progress_timer.start()
+            self.voltage_ea_monitor_timer.start()
             self.label_voltage_status.setText(
                 f"Rampe {pending['mode']} EN COURS : {pending['start_v']:.3f} → "
                 f"{pending['end_v']:.3f} V en {pending['duration_s']:.3f} s.{interphase_text}"
             )
             timeout_ms = int((pending["duration_s"] + pending["hold_s"] + 3.0) * 1000)
             self.voltage_timeout_timer.start(timeout_ms)
-            QTimer.singleShot(200, self.voltage_check_generator_running)
+            QTimer.singleShot(150, self.voltage_check_generator_running)
         except Exception as exc:
             self.voltage_abort_test(f"Départ rampe EA impossible : {exc}")
 
     def voltage_check_generator_running(self):
         if not self.voltage_test_running or not self.voltage_ramp_info:
+            self.voltage_ea_monitor_timer.stop()
             return
         try:
             state = self.ea_psu.generator_state()
-            if state and not any(token in state for token in ("RUN", "ON", "1")):
-                self.voltage_abort_test(f"L'alimentation EA ne confirme pas la rampe RUN : {state}")
+            if not self.ea_psu.generator_state_is_running(state):
+                self.voltage_abort_test(f"L'alimentation EA ne confirme pas la rampe RUN : {state or 'réponse vide'}")
         except Exception as exc:
             self.voltage_abort_test(f"Contrôle état générateur EA impossible : {exc}")
 
@@ -10010,7 +11212,7 @@ class IhmRelaisRp2040:
                 self.voltage_abort_test(
                     "Firmware RP2040 incompatible : la mesure tension doit utiliser "
                     "CAPTURE=FIRST_PASSAGE et VALIDATION=STABLE_AFTER_CAPTURE. "
-                    "Téléverser le firmware V2.12.2."
+                    "Téléverser le firmware V2.12.3 R8."
                 )
                 return
             self.voltage_capture_policy = capture_policy
@@ -10067,6 +11269,7 @@ class IhmRelaisRp2040:
         if kind == "RESULT":
             self.voltage_timeout_timer.stop()
             self.voltage_progress_timer.stop()
+            self.voltage_ea_monitor_timer.stop()
             mode = data.get("MODE", self.voltage_active_scan).upper()
             if data.get("CAPTURE", "").upper() != "FIRST_PASSAGE":
                 self.voltage_abort_test(
@@ -10133,6 +11336,7 @@ class IhmRelaisRp2040:
             return
         mode = str(mode).upper()
         self.voltage_progress_timer.stop()
+        self.voltage_ea_monitor_timer.stop()
         requested_s = None
         if self.voltage_ramp_info and self.voltage_ramp_info.get("mode") == mode:
             requested_s = float(self.voltage_ramp_info.get("duration_s", 0.0))
@@ -10140,6 +11344,7 @@ class IhmRelaisRp2040:
         global_v = self.voltage_results.get(mode, {}).get("GLOBAL")
         elapsed_us = self.voltage_time_results.get(mode, {}).get("GLOBAL")
         elapsed_s = None if elapsed_us is None else elapsed_us / 1_000_000.0
+        plausibility = self.voltage_evaluate_plausibility(mode)
         timing_text = ""
         if requested_s is not None:
             timing_text = f" Rampe demandée {requested_s:.3f} s"
@@ -10149,57 +11354,145 @@ class IhmRelaisRp2040:
                 timing_text += f", seuil {global_v:.3f} V à t={elapsed_s:.3f} s."
             else:
                 timing_text += "."
+        plausibility_text = " " + str(plausibility.get("detail", ""))
+
+        if plausibility.get("status") != "OK":
+            self.voltage_result_override = str(plausibility.get("status") or "NON_VERIFIE")
+            self.voltage_finish_test(
+                False,
+                f"Mesure {mode} enregistrée mais classée {self.voltage_result_override}.{timing_text}{plausibility_text}",
+            )
+            return
+
         try:
             if mode == "PICKUP" and self.voltage_requested_mode == "CYCLE":
-                interphase_s = float(self.doubleSpinBox_voltage_interphase_s.value())
+                interphase_s = self.voltage_run_setting("interphase_s", self.doubleSpinBox_voltage_interphase_s)
                 self.voltage_interphase_origin_monotonic = time.monotonic()
                 target = self.voltage_interphase_origin_monotonic + interphase_s
                 self.voltage_interphase_target_monotonic = target
                 if self.voltage_relay_type() == "BISTABLE":
                     self.voltage_set_coil_hold("OFF")
-                    self.ea_psu.stop_generator(leave_mode=True)
-                    self.ea_psu.output(False)
-                    self.ea_psu.send("VOLT 0")
+                    if not self.voltage_stop_ea_and_confirm("transition BE vers BR", show_alert=False):
+                        self.voltage_abort_test("Transition BE vers BR : arrêt EA non confirmé.")
+                        return
                     self.label_voltage_status.setText(
-                        f"Basculement BE mesuré au premier passage, puis validé stable.{timing_text} "
+                        f"Basculement BE mesuré au premier passage, puis validé stable.{timing_text}{plausibility_text} "
                         f"Préparation BR ; démarrage dans {interphase_s:.2f} s."
                     )
                     self.voltage_begin_dropout(not_before=target)
                 else:
-                    vmax = float(self.doubleSpinBox_voltage_vmax.value())
+                    vmax = self.voltage_run_setting("vmax_v", self.doubleSpinBox_voltage_vmax)
                     self.ea_psu.stop_generator(leave_mode=True)
                     self.ea_psu.send(f"VOLT {vmax:.6f}")
                     self.ea_psu.output(True)
                     self.label_voltage_status.setText(
-                        f"Collage mesuré au premier passage, puis validé stable.{timing_text} "
+                        f"Collage mesuré au premier passage, puis validé stable.{timing_text}{plausibility_text} "
                         f"Maintien à Vmax ; descente dans {interphase_s:.2f} s."
                     )
                     self.voltage_begin_dropout(not_before=target)
                 return
             label = "BE" if mode == "PICKUP" and self.voltage_relay_type() == "BISTABLE" else "BR" if mode == "DROPOUT" and self.voltage_relay_type() == "BISTABLE" else mode.lower()
-            warning = ""
-            if requested_s and effective_s is not None:
-                delta = abs(effective_s - requested_s)
-                if delta > max(0.5, requested_s * 0.10):
-                    warning = f" ATTENTION : durée EA incohérente de {delta:.3f} s."
             self.voltage_finish_test(
                 True,
                 f"Mesure {label} terminée : tension capturée au premier passage, "
-                f"puis position validée stable.{timing_text}{warning}"
+                f"puis position validée stable.{timing_text}{plausibility_text}"
             )
         except Exception as exc:
             self.voltage_abort_test(f"Transition de phase impossible : {exc}")
 
+    def voltage_timeout_global_fallback(self, mode):
+        """Valeur limite à enregistrer lorsque le global n'a jamais été validé."""
+        mode = str(mode or "").upper()
+        vmax = self.voltage_run_setting("vmax_v", self.doubleSpinBox_voltage_vmax)
+        if mode == "DROPOUT" and self.voltage_relay_type() == "MONOSTABLE":
+            return 0.0, "0 V atteint sans rappel global complet"
+        return float(vmax), "Vmax atteint sans basculement global complet"
+
+    def voltage_apply_timeout_global_fallback(self):
+        mode = str(self.voltage_active_scan or "").upper()
+        if mode not in ("PICKUP", "DROPOUT") and self.voltage_ramp_info:
+            mode = str(self.voltage_ramp_info.get("mode", "")).upper()
+        if mode not in ("PICKUP", "DROPOUT"):
+            mode = "PICKUP" if self.voltage_requested_mode in ("PICKUP", "CYCLE") else "DROPOUT"
+
+        first_global = self.voltage_first_passage.get(mode, {}).get("GLOBAL", {})
+        try:
+            first_mv = int(first_global.get("mv", -1))
+        except Exception:
+            first_mv = -1
+        if first_mv >= 0:
+            value = first_mv / 1000.0
+            reason = "premier passage global capturé mais stabilité non confirmée"
+            status = "DEFAUT_STABILITE"
+            try:
+                first_raw = int(first_global.get("raw", -1))
+                if first_raw >= 0:
+                    self.voltage_raw_results.setdefault(mode, {})["GLOBAL"] = first_raw
+            except Exception:
+                pass
+            try:
+                first_t_us = int(first_global.get("t_us", -1))
+                if first_t_us >= 0:
+                    self.voltage_time_results.setdefault(mode, {})["GLOBAL"] = first_t_us
+            except Exception:
+                pass
+            detail = (
+                f"Premier passage global conservé à {value:.3f} V, mais la stabilité finale "
+                "n'a pas été confirmée avant la fin de la rampe."
+            )
+        else:
+            value, reason = self.voltage_timeout_global_fallback(mode)
+            status = "DEFAUT_CONTACTS"
+            detail = (
+                f"Contacts incomplets en fin de rampe : valeur globale limite enregistrée "
+                f"à {value:.3f} V ({reason})."
+            )
+
+        self.voltage_results.setdefault(mode, {})["GLOBAL"] = value
+        self.voltage_plausibility[mode] = {
+            "status": status,
+            "mode": mode,
+            "measured_v": value,
+            "elapsed_s": None,
+            "expected_elapsed_s": None,
+            "elapsed_error_s": None,
+            "tolerance_s": None,
+            "fallback_global_v": value,
+            "fallback_reason": reason,
+            "detail": detail,
+        }
+        self.voltage_result_override = status
+        self.voltage_refresh_results_table()
+        return mode, value, reason, status
+
     def voltage_test_timeout(self):
-        self.voltage_abort_test(
-            "Aucun premier passage complet confirmé par une position stable avant la fin de la rampe."
+        mode, fallback_v, fallback_reason, fallback_status = self.voltage_apply_timeout_global_fallback()
+        title, detail = self.voltage_timeout_contact_diagnostic()
+        detail = (
+            f"{detail}\n\nValeur globale enregistrée : {fallback_v:.3f} V "
+            f"({fallback_reason}). Résultat classé {fallback_status}."
         )
+        message = f"{title}\n\n{detail}"
+        self.voltage_finish_test(
+            False,
+            message,
+            allow_measure_all_continue=True,
+        )
+        if bool(getattr(self, "voltage_ea_stop_confirmation", {}).get("confirmed", False)):
+            self.big_message_box(
+                "Échec mesure tension",
+                title,
+                detail,
+                ok_text="COMPRIS",
+                icon=QMessageBox.Warning,
+            )
 
     def voltage_abort_test(self, reason="Arrêt sécurité demandé"):
         self.voltage_timeout_timer.stop()
         self.voltage_phase_timer.stop()
         self.voltage_arm_timeout_timer.stop()
         self.voltage_progress_timer.stop()
+        self.voltage_ea_monitor_timer.stop()
         self.voltage_pending_ramp = None
         self.voltage_ramp_info = None
         self.voltage_ramp_started_monotonic = None
@@ -10210,24 +11503,36 @@ class IhmRelaisRp2040:
                 self.voltage_set_coil_hold("OFF")
         except Exception:
             pass
-        try:
-            if self.ea_psu.connected:
-                self.ea_psu.stop_generator(leave_mode=True)
-                self.ea_psu.output(False)
-                self.ea_psu.send("VOLT 0")
-        except Exception:
-            pass
+        stop_confirmed = self.voltage_stop_ea_and_confirm("arrêt de sécurité", show_alert=False)
         self.voltage_test_running = False
         self.voltage_active_scan = ""
-        self.label_voltage_status.setText(str(reason))
+        message = str(reason)
+        if not stop_confirmed:
+            detail = str(getattr(self, "voltage_last_stop_diagnostic", "") or "").strip()
+            message += " ARRÊT EA NON CONFIRMÉ — COUPER MANUELLEMENT L'ALIMENTATION."
+            if detail:
+                message += "\n\n" + detail
+        self.label_voltage_status.setText(message)
         self.label_voltage_status.setStyleSheet("background-color: rgb(190,0,0); color: white; font-weight: bold; border: 2px solid black;")
         self.voltage_update_button_states()
+        combined_aborted = getattr(self, "measure_all_active", False) and self.measure_all_phase == "VOLTAGE"
+        if combined_aborted:
+            self.voltage_measure_all_fail(str(reason), preserve_status=True)
+        if not stop_confirmed:
+            self.big_message_box(
+                "Sécurité alimentation EA",
+                "ARRÊT EA NON CONFIRMÉ",
+                message,
+                ok_text="J'AI COUPÉ MANUELLEMENT",
+                icon=QMessageBox.Critical,
+            )
 
-    def voltage_finish_test(self, success, message):
+    def voltage_finish_test(self, success, message, allow_measure_all_continue=False):
         self.voltage_timeout_timer.stop()
         self.voltage_phase_timer.stop()
         self.voltage_arm_timeout_timer.stop()
         self.voltage_progress_timer.stop()
+        self.voltage_ea_monitor_timer.stop()
         self.voltage_pending_ramp = None
         self.voltage_ramp_info = None
         self.voltage_ramp_started_monotonic = None
@@ -10238,13 +11543,13 @@ class IhmRelaisRp2040:
                 self.voltage_set_coil_hold("OFF")
         except Exception:
             pass
-        try:
-            if self.ea_psu.connected:
-                self.ea_psu.stop_generator(leave_mode=True)
-                self.ea_psu.output(False)
-                self.ea_psu.send("VOLT 0")
-        except Exception:
-            pass
+        stop_confirmed = self.voltage_stop_ea_and_confirm("fin de mesure", show_alert=False)
+        if not stop_confirmed:
+            success = False
+            detail = str(getattr(self, "voltage_last_stop_diagnostic", "") or "").strip()
+            message += " ARRÊT EA NON CONFIRMÉ — COUPER MANUELLEMENT L'ALIMENTATION."
+            if detail:
+                message += "\n\n" + detail
         self.voltage_test_running = False
         self.voltage_active_scan = ""
         saved = False
@@ -10261,6 +11566,30 @@ class IhmRelaisRp2040:
             "background-color: rgb(190,0,0); color: white; font-weight: bold; border: 2px solid black;"
         )
         self.voltage_update_button_states()
+        combined_voltage_phase = getattr(self, "measure_all_active", False) and self.measure_all_phase == "VOLTAGE"
+        if combined_voltage_phase:
+            if (success or allow_measure_all_continue) and saved and stop_confirmed:
+                self.measure_all_phase = "CHRONO_PENDING"
+                self.label_voltage_status.setText(
+                    "MESURE TOTALE 1/2 TERMINÉE — tensions sauvegardées. Préparation de la chronométrie contacts..."
+                )
+                self.label_voltage_status.setStyleSheet(
+                    "background-color: rgb(0,90,160); color: white; font-weight: bold; border: 2px solid rgb(0,45,90);"
+                )
+                QTimer.singleShot(400, self.voltage_measure_all_start_chrono)
+            else:
+                self.voltage_measure_all_fail(
+                    "La phase tension n'est pas conforme ou n'a pas été sauvegardée.",
+                    preserve_status=True,
+                )
+        if not stop_confirmed:
+            self.big_message_box(
+                "Sécurité alimentation EA",
+                "ARRÊT EA NON CONFIRMÉ",
+                message,
+                ok_text="J'AI COUPÉ MANUELLEMENT",
+                icon=QMessageBox.Critical,
+            )
 
     def voltage_update_live(self, phase=""):
         # Pendant une rampe, le timer affiche déjà le temps demandé, le temps écoulé
@@ -10293,25 +11622,29 @@ class IhmRelaisRp2040:
         rp_ok = self.is_connected()
         ea_ok = bool(getattr(self, "ea_psu", None) and self.ea_psu.connected)
         running = bool(getattr(self, "voltage_test_running", False))
+        measure_all_busy = bool(getattr(self, "measure_all_active", False))
+        chrono_running = bool(getattr(self, "chrono_measure_running", False))
+        busy = running or measure_all_busy or chrono_running
         calibration_ok = bool(getattr(self, "active_voltage_calibration", None))
-        enabled = rp_ok and ea_ok and calibration_ok and not running and not getattr(self, "chrono_measure_running", False) and not getattr(self, "auto_neutral_running", False)
+        enabled = rp_ok and ea_ok and calibration_ok and not busy and not getattr(self, "auto_neutral_running", False)
         self.pushButton_voltage_pickup.setEnabled(enabled)
         self.pushButton_voltage_dropout.setEnabled(enabled)
         self.pushButton_voltage_cycle.setEnabled(enabled)
-        self.pushButton_voltage_stop.setEnabled(running)
-        self.pushButton_voltage_ea_connect.setEnabled(not ea_ok and not running)
-        self.pushButton_voltage_ea_disconnect.setEnabled(ea_ok and not running)
-        self.pushButton_voltage_ea_refresh.setEnabled(not running)
+        self.pushButton_voltage_measure_all.setEnabled(enabled)
+        self.pushButton_voltage_stop.setEnabled(running or measure_all_busy)
+        self.pushButton_voltage_ea_connect.setEnabled(not ea_ok and not busy)
+        self.pushButton_voltage_ea_disconnect.setEnabled(ea_ok and not busy)
+        self.pushButton_voltage_ea_refresh.setEnabled(not busy)
         for widget in (
             self.doubleSpinBox_voltage_vmax, self.doubleSpinBox_voltage_ramp_up_s,
             self.doubleSpinBox_voltage_ramp_down_s, self.doubleSpinBox_voltage_current_limit,
-            self.doubleSpinBox_voltage_interphase_s,
+            self.doubleSpinBox_voltage_chrono_v, self.doubleSpinBox_voltage_interphase_s,
             self.spinBox_voltage_nb_inverseurs, self.spinBox_voltage_stable_ms,
             self.comboBox_voltage_relay_type,
         ):
-            widget.setEnabled(not running)
-        self.pushButton_voltage_export_xlsx.setEnabled(not running)
-        self.pushButton_voltage_export_pdf.setEnabled(not running)
+            widget.setEnabled(not busy)
+        self.pushButton_voltage_export_xlsx.setEnabled(not busy)
+        self.pushButton_voltage_export_pdf.setEnabled(not busy)
 
     def voltage_init_db(self):
         self.chrono_init_db()
@@ -10334,6 +11667,7 @@ class IhmRelaisRp2040:
                     interphase_s REAL NOT NULL DEFAULT 0,
                     interphase_actual_s REAL,
                     current_limit_a REAL NOT NULL DEFAULT 0,
+                    chrono_supply_v REAL NOT NULL DEFAULT 0,
                     stable_ms INTEGER NOT NULL DEFAULT 0,
                     capture_policy TEXT NOT NULL DEFAULT 'FIRST_PASSAGE',
                     validation_policy TEXT NOT NULL DEFAULT 'STABLE_AFTER_CAPTURE',
@@ -10357,6 +11691,18 @@ class IhmRelaisRp2040:
                     pickup_time_json TEXT NOT NULL DEFAULT '{}',
                     dropout_time_json TEXT NOT NULL DEFAULT '{}',
                     ea_readback_json TEXT NOT NULL DEFAULT '{}',
+                    pickup_plausibility_status TEXT NOT NULL DEFAULT '',
+                    dropout_plausibility_status TEXT NOT NULL DEFAULT '',
+                    pickup_expected_elapsed_s REAL,
+                    dropout_expected_elapsed_s REAL,
+                    pickup_elapsed_error_s REAL,
+                    dropout_elapsed_error_s REAL,
+                    plausibility_json TEXT NOT NULL DEFAULT '{}',
+                    ea_stop_confirmed INTEGER NOT NULL DEFAULT -1,
+                    ea_final_output_state TEXT NOT NULL DEFAULT '',
+                    ea_final_voltage_v REAL,
+                    ea_final_generator_state TEXT NOT NULL DEFAULT '',
+                    ea_stop_detail TEXT NOT NULL DEFAULT '',
                     resultat TEXT NOT NULL DEFAULT '',
                     timestamp TEXT NOT NULL DEFAULT ''
                 )
@@ -10374,6 +11720,7 @@ class IhmRelaisRp2040:
                 "dropout_raw_json": "ALTER TABLE mesures_tension_fonctionnement ADD COLUMN dropout_raw_json TEXT NOT NULL DEFAULT '{}'",
                 "interphase_s": "ALTER TABLE mesures_tension_fonctionnement ADD COLUMN interphase_s REAL NOT NULL DEFAULT 0",
                 "interphase_actual_s": "ALTER TABLE mesures_tension_fonctionnement ADD COLUMN interphase_actual_s REAL",
+                "chrono_supply_v": "ALTER TABLE mesures_tension_fonctionnement ADD COLUMN chrono_supply_v REAL NOT NULL DEFAULT 0",
                 "pickup_elapsed_s": "ALTER TABLE mesures_tension_fonctionnement ADD COLUMN pickup_elapsed_s REAL",
                 "dropout_elapsed_s": "ALTER TABLE mesures_tension_fonctionnement ADD COLUMN dropout_elapsed_s REAL",
                 "pickup_effective_ramp_s": "ALTER TABLE mesures_tension_fonctionnement ADD COLUMN pickup_effective_ramp_s REAL",
@@ -10383,6 +11730,18 @@ class IhmRelaisRp2040:
                 "ea_readback_json": "ALTER TABLE mesures_tension_fonctionnement ADD COLUMN ea_readback_json TEXT NOT NULL DEFAULT '{}'",
                 "capture_policy": "ALTER TABLE mesures_tension_fonctionnement ADD COLUMN capture_policy TEXT NOT NULL DEFAULT 'FIRST_PASSAGE'",
                 "validation_policy": "ALTER TABLE mesures_tension_fonctionnement ADD COLUMN validation_policy TEXT NOT NULL DEFAULT 'STABLE_AFTER_CAPTURE'",
+                "pickup_plausibility_status": "ALTER TABLE mesures_tension_fonctionnement ADD COLUMN pickup_plausibility_status TEXT NOT NULL DEFAULT ''",
+                "dropout_plausibility_status": "ALTER TABLE mesures_tension_fonctionnement ADD COLUMN dropout_plausibility_status TEXT NOT NULL DEFAULT ''",
+                "pickup_expected_elapsed_s": "ALTER TABLE mesures_tension_fonctionnement ADD COLUMN pickup_expected_elapsed_s REAL",
+                "dropout_expected_elapsed_s": "ALTER TABLE mesures_tension_fonctionnement ADD COLUMN dropout_expected_elapsed_s REAL",
+                "pickup_elapsed_error_s": "ALTER TABLE mesures_tension_fonctionnement ADD COLUMN pickup_elapsed_error_s REAL",
+                "dropout_elapsed_error_s": "ALTER TABLE mesures_tension_fonctionnement ADD COLUMN dropout_elapsed_error_s REAL",
+                "plausibility_json": "ALTER TABLE mesures_tension_fonctionnement ADD COLUMN plausibility_json TEXT NOT NULL DEFAULT '{}'",
+                "ea_stop_confirmed": "ALTER TABLE mesures_tension_fonctionnement ADD COLUMN ea_stop_confirmed INTEGER NOT NULL DEFAULT -1",
+                "ea_final_output_state": "ALTER TABLE mesures_tension_fonctionnement ADD COLUMN ea_final_output_state TEXT NOT NULL DEFAULT ''",
+                "ea_final_voltage_v": "ALTER TABLE mesures_tension_fonctionnement ADD COLUMN ea_final_voltage_v REAL",
+                "ea_final_generator_state": "ALTER TABLE mesures_tension_fonctionnement ADD COLUMN ea_final_generator_state TEXT NOT NULL DEFAULT ''",
+                "ea_stop_detail": "ALTER TABLE mesures_tension_fonctionnement ADD COLUMN ea_stop_detail TEXT NOT NULL DEFAULT ''",
             }
             for name, statement in migrations.items():
                 if name not in columns:
@@ -10400,63 +11759,99 @@ class IhmRelaisRp2040:
         dropout_global = dropout.get("GLOBAL")
         pickup_elapsed_s = None if pickup_times.get("GLOBAL") is None else pickup_times["GLOBAL"] / 1_000_000.0
         dropout_elapsed_s = None if dropout_times.get("GLOBAL") is None else dropout_times["GLOBAL"] / 1_000_000.0
-        result = "OK" if (pickup_global is not None or dropout_global is not None) else "INCOMPLET"
+        pickup_pl = dict(self.voltage_plausibility.get("PICKUP", {}))
+        dropout_pl = dict(self.voltage_plausibility.get("DROPOUT", {}))
+        stop = dict(self.voltage_ea_stop_confirmation or {})
+        stop_errors = "; ".join(str(item) for item in stop.get("errors", []) if str(item).strip())
+        stop_detail = f"{str(stop.get('context', '') or 'arrêt')}: {stop_errors or 'confirmation obtenue'}"
+        result = str(self.voltage_result_override or "").strip()
+        if not result:
+            statuses = {str(pickup_pl.get("status", "")), str(dropout_pl.get("status", ""))}
+            if "INCOHERENT" in statuses:
+                result = "INCOHERENT"
+            elif "NON_VERIFIE" in statuses:
+                result = "NON_VERIFIE"
+            else:
+                result = "OK" if (pickup_global is not None or dropout_global is not None) else "INCOMPLET"
+        self.voltage_last_saved_result = result
         cal = self.active_voltage_calibration or {}
+
+        record = {
+            "lot": meta["lot"], "date_test": meta["date_test"], "relais": meta["relais"],
+            "ambiance_c": meta["ambiance_c"], "nom_test": meta["nom_test"], "sn": meta["sn"],
+            "relay_type": self.voltage_relay_type(),
+            "nb_inverseurs": int(self.spinBox_voltage_nb_inverseurs.value()),
+            "chrono_supply_v": self.voltage_run_setting("chrono_supply_v", self.doubleSpinBox_voltage_chrono_v),
+            "vmax_v": self.voltage_run_setting("vmax_v", self.doubleSpinBox_voltage_vmax),
+            "ramp_up_s": self.voltage_run_setting("ramp_up_s", self.doubleSpinBox_voltage_ramp_up_s),
+            "ramp_down_s": self.voltage_run_setting("ramp_down_s", self.doubleSpinBox_voltage_ramp_down_s),
+            "interphase_s": self.voltage_run_setting("interphase_s", self.doubleSpinBox_voltage_interphase_s),
+            "interphase_actual_s": self.voltage_interphase_actual_s,
+            "current_limit_a": self.voltage_run_setting("current_limit_a", self.doubleSpinBox_voltage_current_limit),
+            "stable_ms": int(self.spinBox_voltage_stable_ms.value()),
+            "capture_policy": self.voltage_capture_policy or "FIRST_PASSAGE",
+            "validation_policy": "STABLE_AFTER_CAPTURE",
+            "divider_ratio": float(cal.get("divider_ratio", 0)),
+            "offset_mv": int(cal.get("offset_mv", 0)),
+            "calibration_id": cal.get("id"),
+            "calibration_date": str(cal.get("calibration_date", "")),
+            "calibration_error_v": cal.get("check_error_v"),
+            "pickup_global_raw": pickup_raw.get("GLOBAL"),
+            "dropout_global_raw": dropout_raw.get("GLOBAL"),
+            "pickup_raw_json": json.dumps(pickup_raw, ensure_ascii=False),
+            "dropout_raw_json": json.dumps(dropout_raw, ensure_ascii=False),
+            "pickup_global_v": pickup_global,
+            "dropout_global_v": dropout_global,
+            "pickup_json": json.dumps(pickup, ensure_ascii=False),
+            "dropout_json": json.dumps(dropout, ensure_ascii=False),
+            "pickup_elapsed_s": pickup_elapsed_s,
+            "dropout_elapsed_s": dropout_elapsed_s,
+            "pickup_effective_ramp_s": self.voltage_effective_ramp_s.get("PICKUP"),
+            "dropout_effective_ramp_s": self.voltage_effective_ramp_s.get("DROPOUT"),
+            "pickup_time_json": json.dumps(pickup_times, ensure_ascii=False),
+            "dropout_time_json": json.dumps(dropout_times, ensure_ascii=False),
+            "ea_readback_json": json.dumps(self.voltage_ramp_readbacks, ensure_ascii=False),
+            "pickup_plausibility_status": str(pickup_pl.get("status", "")),
+            "dropout_plausibility_status": str(dropout_pl.get("status", "")),
+            "pickup_expected_elapsed_s": pickup_pl.get("expected_elapsed_s"),
+            "dropout_expected_elapsed_s": dropout_pl.get("expected_elapsed_s"),
+            "pickup_elapsed_error_s": pickup_pl.get("elapsed_error_s"),
+            "dropout_elapsed_error_s": dropout_pl.get("elapsed_error_s"),
+            "plausibility_json": json.dumps(self.voltage_plausibility, ensure_ascii=False),
+            "ea_stop_confirmed": 1 if stop.get("confirmed") is True else 0 if stop.get("confirmed") is False else -1,
+            "ea_final_output_state": str(stop.get("output_state", "")),
+            "ea_final_voltage_v": stop.get("measured_voltage_v"),
+            "ea_final_generator_state": str(stop.get("generator_state", "")),
+            "ea_stop_detail": stop_detail,
+            "resultat": result,
+            "timestamp": time.strftime("%Y-%m-%d %H:%M:%S"),
+        }
         self.voltage_init_db()
+        columns = list(record.keys())
+        sql = (
+            "INSERT INTO mesures_tension_fonctionnement (" + ", ".join(columns) + ") "
+            "VALUES (" + ", ".join("?" for _ in columns) + ")"
+        )
         with self.chrono_connect_db() as con:
-            con.execute(
-                """
-                INSERT INTO mesures_tension_fonctionnement (
-                    lot, date_test, relais, ambiance_c, nom_test, sn, relay_type,
-                    nb_inverseurs, vmax_v, ramp_up_s, ramp_down_s, interphase_s, interphase_actual_s, current_limit_a,
-                    stable_ms, capture_policy, validation_policy, divider_ratio, offset_mv,
-                    calibration_id, calibration_date, calibration_error_v,
-                    pickup_global_raw, dropout_global_raw, pickup_raw_json, dropout_raw_json,
-                    pickup_global_v, dropout_global_v, pickup_json, dropout_json,
-                    pickup_elapsed_s, dropout_elapsed_s,
-                    pickup_effective_ramp_s, dropout_effective_ramp_s,
-                    pickup_time_json, dropout_time_json, ea_readback_json,
-                    resultat, timestamp
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """,
-                (
-                    meta["lot"], meta["date_test"], meta["relais"], meta["ambiance_c"],
-                    meta["nom_test"], meta["sn"], self.voltage_relay_type(),
-                    int(self.spinBox_voltage_nb_inverseurs.value()),
-                    float(self.doubleSpinBox_voltage_vmax.value()),
-                    float(self.doubleSpinBox_voltage_ramp_up_s.value()),
-                    float(self.doubleSpinBox_voltage_ramp_down_s.value()),
-                    float(self.doubleSpinBox_voltage_interphase_s.value()),
-                    self.voltage_interphase_actual_s,
-                    float(self.doubleSpinBox_voltage_current_limit.value()),
-                    int(self.spinBox_voltage_stable_ms.value()),
-                    self.voltage_capture_policy or "FIRST_PASSAGE", "STABLE_AFTER_CAPTURE",
-                    float(cal.get("divider_ratio", 0)), int(cal.get("offset_mv", 0)),
-                    cal.get("id"), str(cal.get("calibration_date", "")), cal.get("check_error_v"),
-                    pickup_raw.get("GLOBAL"), dropout_raw.get("GLOBAL"),
-                    json.dumps(pickup_raw, ensure_ascii=False), json.dumps(dropout_raw, ensure_ascii=False),
-                    pickup_global, dropout_global,
-                    json.dumps(pickup, ensure_ascii=False), json.dumps(dropout, ensure_ascii=False),
-                    pickup_elapsed_s, dropout_elapsed_s,
-                    self.voltage_effective_ramp_s.get("PICKUP"), self.voltage_effective_ramp_s.get("DROPOUT"),
-                    json.dumps(pickup_times, ensure_ascii=False), json.dumps(dropout_times, ensure_ascii=False),
-                    json.dumps(self.voltage_ramp_readbacks, ensure_ascii=False),
-                    result, time.strftime("%Y-%m-%d %H:%M:%S"),
-                ),
-            )
+            con.execute(sql, tuple(record[name] for name in columns))
 
     def voltage_records_for_lot(self, lot):
         self.voltage_init_db()
         with self.chrono_connect_db() as con:
             return con.execute(
                 """
-                SELECT lot, date_test, relais, ambiance_c, nom_test, sn, relay_type,
-                       nb_inverseurs, vmax_v, ramp_up_s, ramp_down_s, interphase_s, interphase_actual_s, current_limit_a,
+                SELECT id, lot, date_test, relais, ambiance_c, nom_test, sn, relay_type,
+                       nb_inverseurs, vmax_v, ramp_up_s, ramp_down_s, interphase_s, interphase_actual_s, current_limit_a, chrono_supply_v,
                        stable_ms, capture_policy, validation_policy, divider_ratio, offset_mv, calibration_id, calibration_date, calibration_error_v,
                        pickup_global_raw, dropout_global_raw, pickup_raw_json, dropout_raw_json,
                        pickup_global_v, dropout_global_v, pickup_json, dropout_json,
                        pickup_elapsed_s, dropout_elapsed_s, pickup_effective_ramp_s, dropout_effective_ramp_s,
-                       pickup_time_json, dropout_time_json, ea_readback_json, resultat, timestamp
+                       pickup_time_json, dropout_time_json, ea_readback_json,
+                       pickup_plausibility_status, dropout_plausibility_status,
+                       pickup_expected_elapsed_s, dropout_expected_elapsed_s,
+                       pickup_elapsed_error_s, dropout_elapsed_error_s, plausibility_json,
+                       ea_stop_confirmed, ea_final_output_state, ea_final_voltage_v,
+                       ea_final_generator_state, ea_stop_detail, resultat, timestamp
                 FROM mesures_tension_fonctionnement
                 WHERE lot = ?
                 ORDER BY timestamp ASC, id ASC
@@ -10470,7 +11865,7 @@ class IhmRelaisRp2040:
             ("ramp_up_s", "Montée BE demandée s"), ("ramp_down_s", "Retour BE/BR demandé s"),
             ("interphase_s", "Attente demandée s"),
             ("interphase_actual_s", "Attente réelle s"),
-            ("current_limit_a", "Limite A"), ("stable_ms", "Validation ms"),
+            ("current_limit_a", "Limite A"), ("chrono_supply_v", "Tension chronométrie EA V"), ("stable_ms", "Validation ms"),
             ("capture_policy", "Méthode capture"), ("validation_policy", "Méthode validation"),
             ("calibration_id", "ID étalonnage"), ("calibration_date", "Date étalonnage"),
             ("divider_ratio", "Rapport étalonné"), ("offset_mv", "Offset mV"), ("calibration_error_v", "Erreur contrôle V"),
@@ -10481,49 +11876,71 @@ class IhmRelaisRp2040:
             ("pickup_json", "Collage par inverseur"), ("dropout_json", "Décollage par inverseur"),
             ("pickup_time_json", "Temps collage par inverseur µs"), ("dropout_time_json", "Temps retour par inverseur µs"),
             ("ea_readback_json", "Relecture paramètres EA"),
+            ("pickup_plausibility_status", "Plausibilité collage/BE"),
+            ("dropout_plausibility_status", "Plausibilité retour/BR"),
+            ("pickup_expected_elapsed_s", "Temps théorique collage/BE s"),
+            ("dropout_expected_elapsed_s", "Temps théorique retour/BR s"),
+            ("pickup_elapsed_error_s", "Écart temps collage/BE s"),
+            ("dropout_elapsed_error_s", "Écart temps retour/BR s"),
+            ("ea_stop_confirmed", "Arrêt EA confirmé"),
+            ("ea_final_output_state", "Sortie EA finale"),
+            ("ea_final_voltage_v", "Tension EA finale V"),
+            ("ea_final_generator_state", "Générateur EA final"),
+            ("ea_stop_detail", "Détail arrêt EA"),
             ("resultat", "Résultat"), ("timestamp", "Horodatage"),
         ]
 
     def voltage_export_lot_xlsx(self):
         lot = self.lineEdit_voltage_lot.text().strip()
         if not lot:
-            QMessageBox.warning(self.window, "Export tensions", "Renseigner le lot.")
+            QMessageBox.warning(self.window, "Export mesures", "Renseigner le lot.")
             return
-        rows = self.voltage_records_for_lot(lot)
-        if not rows:
-            QMessageBox.information(self.window, "Export tensions", f"Aucune mesure pour le lot {lot}.")
+        try:
+            chrono_records = self.chrono_records_for_lot(lot)
+            voltage_records = self.voltage_records_for_lot(lot)
+        except Exception as exc:
+            QMessageBox.warning(self.window, "Export mesures", f"Lecture base impossible : {exc}")
             return
-        path = self.ask_export_path("Exporter tensions de fonctionnement", f"tensions_fonctionnement_lot_{self.filename_safe(lot)}.xlsx", "Excel (*.xlsx)", ".xlsx")
+        if not chrono_records and not voltage_records:
+            QMessageBox.information(self.window, "Export mesures", f"Aucune mesure pour le lot {lot}.")
+            return
+        path = self.ask_export_path(
+            "Exporter les mesures complètes",
+            f"mesures_completes_lot_{self.filename_safe(lot)}.xlsx",
+            "Excel (*.xlsx)",
+            ".xlsx",
+        )
         if not path:
             return
-        self.write_table_xlsx(path, f"Tensions de fonctionnement - Lot {lot}", self.voltage_export_headers(), rows)
-        QMessageBox.information(self.window, "Export tensions", f"Export XLSX créé :\n{path}")
+        summary_cards, detail_cards = self.chrono_export_measure_sheets(chrono_records, voltage_records)
+        self.write_chrono_lot_xlsx(path, lot, summary_cards, detail_cards)
+        QMessageBox.information(self.window, "Export mesures", f"Export XLSX créé :\n{path}")
 
     def voltage_export_lot_pdf(self):
         lot = self.lineEdit_voltage_lot.text().strip()
         if not lot:
-            QMessageBox.warning(self.window, "Export tensions", "Renseigner le lot.")
+            QMessageBox.warning(self.window, "Export mesures", "Renseigner le lot.")
             return
-        rows = self.voltage_records_for_lot(lot)
-        if not rows:
-            QMessageBox.information(self.window, "Export tensions", f"Aucune mesure pour le lot {lot}.")
+        try:
+            chrono_records = self.chrono_records_for_lot(lot)
+            voltage_records = self.voltage_records_for_lot(lot)
+        except Exception as exc:
+            QMessageBox.warning(self.window, "Export mesures", f"Lecture base impossible : {exc}")
             return
-        headers = [
-            ("lot", "Lot"), ("relais", "Relais"), ("sn", "SN"), ("relay_type", "Type"),
-            ("nb_inverseurs", "Inv."), ("pickup_global_v", "Collage / BE V"),
-            ("dropout_global_v", "Décollage / BR V"), ("calibration_id", "Cal."),
-            ("calibration_error_v", "Err. cal. V"), ("resultat", "Résultat"),
-        ]
-        path = self.ask_export_path("Exporter tensions de fonctionnement", f"tensions_fonctionnement_lot_{self.filename_safe(lot)}.pdf", "PDF (*.pdf)", ".pdf")
+        if not chrono_records and not voltage_records:
+            QMessageBox.information(self.window, "Export mesures", f"Aucune mesure pour le lot {lot}.")
+            return
+        path = self.ask_export_path(
+            "Exporter les mesures complètes",
+            f"mesures_completes_lot_{self.filename_safe(lot)}.pdf",
+            "PDF (*.pdf)",
+            ".pdf",
+        )
         if not path:
             return
-        self.write_table_pdf(
-            path,
-            f"Tensions de fonctionnement - Lot {lot} - Capture premier passage",
-            headers,
-            rows,
-        )
-        QMessageBox.information(self.window, "Export tensions", f"Export PDF créé :\n{path}")
+        summary_cards, detail_cards = self.chrono_export_measure_sheets(chrono_records, voltage_records)
+        self.write_chrono_lot_pdf(path, lot, chrono_records, summary_cards, detail_cards, voltage_records)
+        QMessageBox.information(self.window, "Export mesures", f"Export PDF créé :\n{path}")
 
     def show(self):
         self.window.show()

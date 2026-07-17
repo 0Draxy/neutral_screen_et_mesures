@@ -1,4 +1,4 @@
-<?xml version='1.0' encoding='utf-8'?>
+<?xml version="1.0" encoding="UTF-8"?>
 <ui version="4.0">
  <class>MainWindow</class>
  <widget class="QMainWindow" name="MainWindow">
@@ -7,11 +7,11 @@
     <x>0</x>
     <y>0</y>
     <width>861</width>
-    <height>838</height>
+    <height>844</height>
    </rect>
   </property>
   <property name="windowTitle">
-   <string>Cycleur - Neutral Screen - V2.12.2 - (Par O.MARECHAL)</string>
+   <string>Cycleur - Neutral Screen - V2.12.3 R10 - (Par O.MARECHAL)</string>
   </property>
   <widget class="QWidget" name="centralwidget">
    <widget class="QTabWidget" name="tabWidget_principal">
@@ -24,7 +24,7 @@
      </rect>
     </property>
     <property name="currentIndex">
-     <number>6</number>
+     <number>0</number>
     </property>
     <widget class="QWidget" name="tab_production_accueil">
      <attribute name="title">
@@ -43,7 +43,7 @@
        <string>font-size: 26pt; font-weight: bold; color: rgb(30,30,30);</string>
       </property>
       <property name="text">
-       <string>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;&lt;span style=" font-size:24pt;"&gt;Cycleur - Neutral Screen&lt;/span&gt;&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</string>
+       <string>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;&lt;span style=&quot; font-size:24pt;&quot;&gt;Neutral Screen - Cycleur - Mesures&lt;/span&gt;&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</string>
       </property>
       <property name="alignment">
        <set>Qt::AlignmentFlag::AlignCenter</set>
@@ -53,7 +53,7 @@
       <property name="geometry">
        <rect>
         <x>20</x>
-        <y>50</y>
+        <y>60</y>
         <width>780</width>
         <height>24</height>
        </rect>
@@ -62,7 +62,7 @@
        <string>font-size: 11pt; color: rgb(80,80,80);</string>
       </property>
       <property name="text">
-       <string>Préparation essai production et traçabilité locale</string>
+       <string>V 2.12.3 R10</string>
       </property>
       <property name="alignment">
        <set>Qt::AlignmentFlag::AlignCenter</set>
@@ -231,7 +231,7 @@
        </property>
        <item>
         <property name="text">
-         <string />
+         <string/>
         </property>
        </item>
        <item>
@@ -358,6 +358,25 @@
          <width>771</width>
          <height>179</height>
         </rect>
+       </property>
+      </widget>
+      <widget class="QPushButton" name="pushButton_prod_reload_base">
+       <property name="geometry">
+        <rect>
+         <x>460</x>
+         <y>24</y>
+         <width>130</width>
+         <height>28</height>
+        </rect>
+       </property>
+       <property name="toolTip">
+        <string>Relit la base Production depuis le disque et actualise les tableaux Production et Gestion Base.</string>
+       </property>
+       <property name="styleSheet">
+        <string>font-weight: bold; background-color: rgb(240,240,240); color: black;</string>
+       </property>
+       <property name="text">
+        <string>Recharger base</string>
        </property>
       </widget>
       <widget class="QPushButton" name="pushButton_prod_export_pdf_lot">
@@ -1093,7 +1112,7 @@
         <string>background-color: rgb(45,45,45); border: 2px solid rgb(15,15,15); border-radius: 14px;</string>
        </property>
        <property name="text">
-        <string />
+        <string/>
        </property>
        <property name="alignment">
         <set>Qt::AlignmentFlag::AlignCenter</set>
@@ -1131,7 +1150,7 @@
         <string>background-color: rgb(45,45,45); border: 2px solid rgb(15,15,15); border-radius: 14px;</string>
        </property>
        <property name="text">
-        <string />
+        <string/>
        </property>
        <property name="alignment">
         <set>Qt::AlignmentFlag::AlignCenter</set>
@@ -1169,7 +1188,7 @@
         <string>background-color: rgb(45,45,45); border: 2px solid rgb(15,15,15); border-radius: 14px;</string>
        </property>
        <property name="text">
-        <string />
+        <string/>
        </property>
        <property name="alignment">
         <set>Qt::AlignmentFlag::AlignCenter</set>
@@ -1207,7 +1226,7 @@
         <string>background-color: rgb(45,45,45); border: 2px solid rgb(15,15,15); border-radius: 14px;</string>
        </property>
        <property name="text">
-        <string />
+        <string/>
        </property>
        <property name="alignment">
         <set>Qt::AlignmentFlag::AlignCenter</set>
@@ -1245,7 +1264,7 @@
         <string>background-color: rgb(45,45,45); border: 2px solid rgb(15,15,15); border-radius: 14px;</string>
        </property>
        <property name="text">
-        <string />
+        <string/>
        </property>
        <property name="alignment">
         <set>Qt::AlignmentFlag::AlignCenter</set>
@@ -1283,7 +1302,7 @@
         <string>background-color: rgb(45,45,45); border: 2px solid rgb(15,15,15); border-radius: 14px;</string>
        </property>
        <property name="text">
-        <string />
+        <string/>
        </property>
        <property name="alignment">
         <set>Qt::AlignmentFlag::AlignCenter</set>
@@ -1321,7 +1340,7 @@
         <string>background-color: rgb(45,45,45); border: 2px solid rgb(15,15,15); border-radius: 14px;</string>
        </property>
        <property name="text">
-        <string />
+        <string/>
        </property>
        <property name="alignment">
         <set>Qt::AlignmentFlag::AlignCenter</set>
@@ -1359,7 +1378,7 @@
         <string>background-color: rgb(45,45,45); border: 2px solid rgb(15,15,15); border-radius: 14px;</string>
        </property>
        <property name="text">
-        <string />
+        <string/>
        </property>
        <property name="alignment">
         <set>Qt::AlignmentFlag::AlignCenter</set>
@@ -1398,7 +1417,7 @@
        <bool>false</bool>
       </property>
       <property name="title">
-       <string>LOGIGRAMME FIXE MASQUE - V2.12.2</string>
+       <string>LOGIGRAMME FIXE MASQUE - V2.12.3</string>
       </property>
       <widget class="QLabel" name="label_auto_step_start">
        <property name="geometry">
@@ -2644,7 +2663,7 @@ après 3 essais BE/BR → accepté.
         <string>background-color: rgb(45,45,45); border: 2px solid rgb(15,15,15); border-radius: 14px;</string>
        </property>
        <property name="text">
-        <string />
+        <string/>
        </property>
        <property name="alignment">
         <set>Qt::AlignmentFlag::AlignCenter</set>
@@ -2682,7 +2701,7 @@ après 3 essais BE/BR → accepté.
         <string>background-color: rgb(45,45,45); border: 2px solid rgb(15,15,15); border-radius: 14px;</string>
        </property>
        <property name="text">
-        <string />
+        <string/>
        </property>
        <property name="alignment">
         <set>Qt::AlignmentFlag::AlignCenter</set>
@@ -2720,7 +2739,7 @@ après 3 essais BE/BR → accepté.
         <string>background-color: rgb(45,45,45); border: 2px solid rgb(15,15,15); border-radius: 14px;</string>
        </property>
        <property name="text">
-        <string />
+        <string/>
        </property>
        <property name="alignment">
         <set>Qt::AlignmentFlag::AlignCenter</set>
@@ -2758,7 +2777,7 @@ après 3 essais BE/BR → accepté.
         <string>background-color: rgb(45,45,45); border: 2px solid rgb(15,15,15); border-radius: 14px;</string>
        </property>
        <property name="text">
-        <string />
+        <string/>
        </property>
        <property name="alignment">
         <set>Qt::AlignmentFlag::AlignCenter</set>
@@ -2815,7 +2834,7 @@ après 3 essais BE/BR → accepté.
         <string>background-color: rgb(45,45,45); border: 2px solid rgb(15,15,15); border-radius: 14px;</string>
        </property>
        <property name="text">
-        <string />
+        <string/>
        </property>
        <property name="alignment">
         <set>Qt::AlignmentFlag::AlignCenter</set>
@@ -2853,7 +2872,7 @@ après 3 essais BE/BR → accepté.
         <string>background-color: rgb(45,45,45); border: 2px solid rgb(15,15,15); border-radius: 14px;</string>
        </property>
        <property name="text">
-        <string />
+        <string/>
        </property>
        <property name="alignment">
         <set>Qt::AlignmentFlag::AlignCenter</set>
@@ -2891,7 +2910,7 @@ après 3 essais BE/BR → accepté.
         <string>background-color: rgb(45,45,45); border: 2px solid rgb(15,15,15); border-radius: 14px;</string>
        </property>
        <property name="text">
-        <string />
+        <string/>
        </property>
        <property name="alignment">
         <set>Qt::AlignmentFlag::AlignCenter</set>
@@ -2929,7 +2948,7 @@ après 3 essais BE/BR → accepté.
         <string>background-color: rgb(45,45,45); border: 2px solid rgb(15,15,15); border-radius: 14px;</string>
        </property>
        <property name="text">
-        <string />
+        <string/>
        </property>
        <property name="alignment">
         <set>Qt::AlignmentFlag::AlignCenter</set>
@@ -3084,7 +3103,7 @@ après 3 essais BE/BR → accepté.
         <string>background-color: white; color: black;</string>
        </property>
        <property name="text">
-        <string />
+        <string/>
        </property>
       </widget>
       <widget class="QPushButton" name="pushButton_editor_sauvegarder">
@@ -3294,7 +3313,7 @@ après 3 essais BE/BR → accepté.
        <string>background-color: rgb(245,245,220); color: black; border: 1px solid rgb(160,160,120); font-weight: bold;</string>
       </property>
       <property name="text">
-       <string>V2.12.2 : Description plus lisible ; colonne Note masquée ; infobulle complète au survol.</string>
+       <string>V2.12.3 : Description plus lisible ; colonne Note masquée ; infobulle complète au survol.</string>
       </property>
       <property name="alignment">
        <set>Qt::AlignmentFlag::AlignCenter</set>
@@ -3366,7 +3385,7 @@ après 3 essais BE/BR → accepté.
       <property name="geometry">
        <rect>
         <x>10</x>
-        <y>105</y>
+        <y>110</y>
         <width>790</width>
         <height>190</height>
        </rect>
@@ -3418,7 +3437,7 @@ après 3 essais BE/BR → accepté.
        </item>
        <item>
         <property name="text">
-         <string>Chronométrie contacts</string>
+         <string>Chronométrie contacts + tensions</string>
         </property>
        </item>
       </widget>
@@ -3537,7 +3556,7 @@ après 3 essais BE/BR → accepté.
         <rect>
          <x>460</x>
          <y>60</y>
-         <width>105</width>
+         <width>141</width>
          <height>36</height>
         </rect>
        </property>
@@ -3997,7 +4016,7 @@ après 3 essais BE/BR → accepté.
         <rect>
          <x>90</x>
          <y>20</y>
-         <width>91</width>
+         <width>101</width>
          <height>30</height>
         </rect>
        </property>
@@ -4005,7 +4024,7 @@ après 3 essais BE/BR → accepté.
       <widget class="QPushButton" name="pushButton_rafraichir_ports">
        <property name="geometry">
         <rect>
-         <x>190</x>
+         <x>220</x>
          <y>20</y>
          <width>141</width>
          <height>30</height>
@@ -4651,13 +4670,13 @@ après 3 essais BE/BR → accepté.
        <property name="geometry">
         <rect>
          <x>10</x>
-         <y>10</y>
+         <y>20</y>
          <width>281</width>
-         <height>91</height>
+         <height>61</height>
         </rect>
        </property>
        <property name="text">
-        <string>Les fronts sont générés par le RP2040, pas par Windows. Python convertit chaque champ en µs. Le RP2040 utilise une alarme matérielle et des sorties GPIO directes.</string>
+        <string>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;Les fronts sont générés par le RP2040.&lt;/p&gt;&lt;p&gt;Python convertit chaque champ en µs.&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</string>
        </property>
        <property name="wordWrap">
         <bool>true</bool>
@@ -4801,7 +4820,7 @@ après 3 essais BE/BR → accepté.
         <enum>QFrame::Shape::Box</enum>
        </property>
        <property name="text">
-        <string>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;&lt;span style=" font-size:10pt; font-weight:700;"&gt;Cycle : 0 / 0&lt;/span&gt;&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</string>
+        <string>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;&lt;span style=&quot; font-size:10pt; font-weight:700;&quot;&gt;Cycle : 0 / 0&lt;/span&gt;&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</string>
        </property>
        <property name="alignment">
         <set>Qt::AlignmentFlag::AlignCenter</set>
@@ -4827,7 +4846,7 @@ après 3 essais BE/BR → accepté.
         <x>440</x>
         <y>490</y>
         <width>371</width>
-        <height>91</height>
+        <height>111</height>
        </rect>
       </property>
       <property name="title">
@@ -4838,8 +4857,8 @@ après 3 essais BE/BR → accepté.
         <rect>
          <x>18</x>
          <y>20</y>
-         <width>81</width>
-         <height>30</height>
+         <width>151</width>
+         <height>51</height>
         </rect>
        </property>
        <property name="text">
@@ -4849,9 +4868,9 @@ après 3 essais BE/BR → accepté.
       <widget class="QPushButton" name="pushButton_pause">
        <property name="geometry">
         <rect>
-         <x>100</x>
-         <y>20</y>
-         <width>81</width>
+         <x>20</x>
+         <y>70</y>
+         <width>111</width>
          <height>30</height>
         </rect>
        </property>
@@ -4862,9 +4881,9 @@ après 3 essais BE/BR → accepté.
       <widget class="QPushButton" name="pushButton_reprendre">
        <property name="geometry">
         <rect>
-         <x>180</x>
-         <y>20</y>
-         <width>81</width>
+         <x>140</x>
+         <y>70</y>
+         <width>111</width>
          <height>30</height>
         </rect>
        </property>
@@ -4875,10 +4894,10 @@ après 3 essais BE/BR → accepté.
       <widget class="QPushButton" name="pushButton_arret">
        <property name="geometry">
         <rect>
-         <x>20</x>
-         <y>50</y>
+         <x>170</x>
+         <y>20</y>
          <width>81</width>
-         <height>30</height>
+         <height>51</height>
         </rect>
        </property>
        <property name="text">
@@ -4888,8 +4907,8 @@ après 3 essais BE/BR → accepté.
       <widget class="QPushButton" name="pushButton_status">
        <property name="geometry">
         <rect>
-         <x>100</x>
-         <y>50</y>
+         <x>270</x>
+         <y>70</y>
          <width>81</width>
          <height>30</height>
         </rect>
@@ -4950,7 +4969,7 @@ après 3 essais BE/BR → accepté.
         <string>background-color: rgb(45,45,45); border: 2px solid rgb(15,15,15); border-radius: 14px;</string>
        </property>
        <property name="text">
-        <string />
+        <string/>
        </property>
        <property name="alignment">
         <set>Qt::AlignmentFlag::AlignCenter</set>
@@ -4988,7 +5007,7 @@ après 3 essais BE/BR → accepté.
         <string>background-color: rgb(45,45,45); border: 2px solid rgb(15,15,15); border-radius: 14px;</string>
        </property>
        <property name="text">
-        <string />
+        <string/>
        </property>
        <property name="alignment">
         <set>Qt::AlignmentFlag::AlignCenter</set>
@@ -5026,7 +5045,7 @@ après 3 essais BE/BR → accepté.
         <string>background-color: rgb(45,45,45); border: 2px solid rgb(15,15,15); border-radius: 14px;</string>
        </property>
        <property name="text">
-        <string />
+        <string/>
        </property>
        <property name="alignment">
         <set>Qt::AlignmentFlag::AlignCenter</set>
@@ -5064,7 +5083,7 @@ après 3 essais BE/BR → accepté.
         <string>background-color: rgb(45,45,45); border: 2px solid rgb(15,15,15); border-radius: 14px;</string>
        </property>
        <property name="text">
-        <string />
+        <string/>
        </property>
        <property name="alignment">
         <set>Qt::AlignmentFlag::AlignCenter</set>
@@ -5121,7 +5140,7 @@ après 3 essais BE/BR → accepté.
         <string>background-color: rgb(45,45,45); border: 2px solid rgb(15,15,15); border-radius: 14px;</string>
        </property>
        <property name="text">
-        <string />
+        <string/>
        </property>
        <property name="alignment">
         <set>Qt::AlignmentFlag::AlignCenter</set>
@@ -5159,7 +5178,7 @@ après 3 essais BE/BR → accepté.
         <string>background-color: rgb(45,45,45); border: 2px solid rgb(15,15,15); border-radius: 14px;</string>
        </property>
        <property name="text">
-        <string />
+        <string/>
        </property>
        <property name="alignment">
         <set>Qt::AlignmentFlag::AlignCenter</set>
@@ -5197,7 +5216,7 @@ après 3 essais BE/BR → accepté.
         <string>background-color: rgb(45,45,45); border: 2px solid rgb(15,15,15); border-radius: 14px;</string>
        </property>
        <property name="text">
-        <string />
+        <string/>
        </property>
        <property name="alignment">
         <set>Qt::AlignmentFlag::AlignCenter</set>
@@ -5235,7 +5254,7 @@ après 3 essais BE/BR → accepté.
         <string>background-color: rgb(45,45,45); border: 2px solid rgb(15,15,15); border-radius: 14px;</string>
        </property>
        <property name="text">
-        <string />
+        <string/>
        </property>
        <property name="alignment">
         <set>Qt::AlignmentFlag::AlignCenter</set>
@@ -5472,7 +5491,7 @@ après 3 essais BE/BR → accepté.
         </rect>
        </property>
        <property name="text">
-        <string />
+        <string/>
        </property>
       </widget>
       <widget class="QLineEdit" name="lineEdit_chrono_resultat">
@@ -5860,7 +5879,7 @@ après 3 essais BE/BR → accepté.
         <string>background-color: rgb(45,45,45); border: 2px solid rgb(15,15,15); border-radius: 14px;</string>
        </property>
        <property name="text">
-        <string />
+        <string/>
        </property>
        <property name="alignment">
         <set>Qt::AlignmentFlag::AlignCenter</set>
@@ -5910,7 +5929,7 @@ après 3 essais BE/BR → accepté.
         <string>background-color: rgb(45,45,45); border: 2px solid rgb(15,15,15); border-radius: 14px;</string>
        </property>
        <property name="text">
-        <string />
+        <string/>
        </property>
        <property name="alignment">
         <set>Qt::AlignmentFlag::AlignCenter</set>
@@ -5960,7 +5979,7 @@ après 3 essais BE/BR → accepté.
         <string>background-color: rgb(45,45,45); border: 2px solid rgb(15,15,15); border-radius: 14px;</string>
        </property>
        <property name="text">
-        <string />
+        <string/>
        </property>
        <property name="alignment">
         <set>Qt::AlignmentFlag::AlignCenter</set>
@@ -6010,7 +6029,7 @@ après 3 essais BE/BR → accepté.
         <string>background-color: rgb(45,45,45); border: 2px solid rgb(15,15,15); border-radius: 14px;</string>
        </property>
        <property name="text">
-        <string />
+        <string/>
        </property>
        <property name="alignment">
         <set>Qt::AlignmentFlag::AlignCenter</set>
@@ -6060,7 +6079,7 @@ après 3 essais BE/BR → accepté.
         <string>background-color: rgb(45,45,45); border: 2px solid rgb(15,15,15); border-radius: 14px;</string>
        </property>
        <property name="text">
-        <string />
+        <string/>
        </property>
        <property name="alignment">
         <set>Qt::AlignmentFlag::AlignCenter</set>
@@ -6110,7 +6129,7 @@ après 3 essais BE/BR → accepté.
         <string>background-color: rgb(45,45,45); border: 2px solid rgb(15,15,15); border-radius: 14px;</string>
        </property>
        <property name="text">
-        <string />
+        <string/>
        </property>
        <property name="alignment">
         <set>Qt::AlignmentFlag::AlignCenter</set>
@@ -6160,7 +6179,7 @@ après 3 essais BE/BR → accepté.
         <string>background-color: rgb(45,45,45); border: 2px solid rgb(15,15,15); border-radius: 14px;</string>
        </property>
        <property name="text">
-        <string />
+        <string/>
        </property>
        <property name="alignment">
         <set>Qt::AlignmentFlag::AlignCenter</set>
@@ -6210,7 +6229,7 @@ après 3 essais BE/BR → accepté.
         <string>background-color: rgb(45,45,45); border: 2px solid rgb(15,15,15); border-radius: 14px;</string>
        </property>
        <property name="text">
-        <string />
+        <string/>
        </property>
        <property name="alignment">
         <set>Qt::AlignmentFlag::AlignCenter</set>
@@ -6341,7 +6360,7 @@ après 3 essais BE/BR → accepté.
        </rect>
       </property>
       <property name="title">
-       <string />
+       <string/>
       </property>
       <widget class="QPushButton" name="pushButton_chrono_export_xlsx_lot">
        <property name="geometry">
@@ -6801,7 +6820,7 @@ après 3 essais BE/BR → accepté.
       <widget class="QLabel" name="label_oscillo_zoom_factor">
        <property name="geometry">
         <rect>
-         <x>295</x>
+         <x>280</x>
          <y>154</y>
          <width>62</width>
          <height>28</height>
@@ -6820,9 +6839,9 @@ après 3 essais BE/BR → accepté.
       <widget class="QSpinBox" name="spinBox_oscillo_zoom_factor">
        <property name="geometry">
         <rect>
-         <x>360</x>
+         <x>340</x>
          <y>156</y>
-         <width>60</width>
+         <width>81</width>
          <height>24</height>
         </rect>
        </property>
@@ -6871,9 +6890,9 @@ après 3 essais BE/BR → accepté.
       <widget class="QLabel" name="label_oscillo_display_mode">
        <property name="geometry">
         <rect>
-         <x>435</x>
+         <x>460</x>
          <y>154</y>
-         <width>75</width>
+         <width>61</width>
          <height>28</height>
         </rect>
        </property>
@@ -6892,7 +6911,7 @@ après 3 essais BE/BR → accepté.
        </property>
       </widget>
      </widget>
-     <widget class="QWidget" name="widget_oscillo_canvas">
+     <widget class="QWidget" name="widget_oscillo_canvas" native="true">
       <property name="geometry">
        <rect>
         <x>10</x>
@@ -7310,9 +7329,9 @@ après 3 essais BE/BR → accepté.
       <widget class="QDoubleSpinBox" name="doubleSpinBox_voltage_vmax">
        <property name="geometry">
         <rect>
-         <x>100</x>
+         <x>70</x>
          <y>20</y>
-         <width>90</width>
+         <width>91</width>
          <height>24</height>
         </rect>
        </property>
@@ -7332,7 +7351,7 @@ après 3 essais BE/BR → accepté.
       <widget class="QLabel" name="label_voltage_ramp_up">
        <property name="geometry">
         <rect>
-         <x>205</x>
+         <x>170</x>
          <y>20</y>
          <width>105</width>
          <height>22</height>
@@ -7345,11 +7364,17 @@ après 3 essais BE/BR → accepté.
       <widget class="QDoubleSpinBox" name="doubleSpinBox_voltage_ramp_up_s">
        <property name="geometry">
         <rect>
-         <x>315</x>
+         <x>280</x>
          <y>20</y>
-         <width>80</width>
+         <width>101</width>
          <height>24</height>
         </rect>
+       </property>
+       <property name="toolTip">
+        <string>Durée complète de la rampe EA. La mesure s'arrête dès le basculement : 12 V sur 0→20 V en 20 s est attendu vers 12 s. La durée maximale est recalculée automatiquement à partir de Vmax et de la pente minimale EA.</string>
+       </property>
+       <property name="suffix">
+        <string> s</string>
        </property>
        <property name="decimals">
         <number>3</number>
@@ -7360,23 +7385,17 @@ après 3 essais BE/BR → accepté.
        <property name="maximum">
         <double>300.000000000000000</double>
        </property>
-       <property name="value">
-        <double>3.000000000000000</double>
-       </property>
        <property name="singleStep">
         <double>0.100000000000000</double>
        </property>
-       <property name="suffix">
-        <string> s</string>
-       </property>
-       <property name="toolTip">
-        <string>Durée complète de la rampe EA. La mesure s'arrête dès le basculement : 12 V sur 0→20 V en 20 s est attendu vers 12 s. La durée est aussi contrôlée par la pente minimale de l'EA.</string>
+       <property name="value">
+        <double>3.000000000000000</double>
        </property>
       </widget>
       <widget class="QLabel" name="label_voltage_ramp_down">
        <property name="geometry">
         <rect>
-         <x>410</x>
+         <x>390</x>
          <y>20</y>
          <width>110</width>
          <height>22</height>
@@ -7389,11 +7408,17 @@ après 3 essais BE/BR → accepté.
       <widget class="QDoubleSpinBox" name="doubleSpinBox_voltage_ramp_down_s">
        <property name="geometry">
         <rect>
-         <x>525</x>
+         <x>515</x>
          <y>20</y>
-         <width>80</width>
+         <width>101</width>
          <height>24</height>
         </rect>
+       </property>
+       <property name="toolTip">
+        <string>Durée complète de la rampe EA. La mesure s'arrête dès le basculement : 12 V sur 0→20 V en 20 s est attendu vers 12 s. La durée maximale est recalculée automatiquement à partir de Vmax et de la pente minimale EA.</string>
+       </property>
+       <property name="suffix">
+        <string> s</string>
        </property>
        <property name="decimals">
         <number>3</number>
@@ -7404,25 +7429,19 @@ après 3 essais BE/BR → accepté.
        <property name="maximum">
         <double>300.000000000000000</double>
        </property>
-       <property name="value">
-        <double>3.000000000000000</double>
-       </property>
        <property name="singleStep">
         <double>0.100000000000000</double>
        </property>
-       <property name="suffix">
-        <string> s</string>
-       </property>
-       <property name="toolTip">
-        <string>Durée complète de la rampe EA. La mesure s'arrête dès le basculement : 12 V sur 0→20 V en 20 s est attendu vers 12 s. La durée est aussi contrôlée par la pente minimale de l'EA.</string>
+       <property name="value">
+        <double>3.000000000000000</double>
        </property>
       </widget>
       <widget class="QLabel" name="label_voltage_current">
        <property name="geometry">
         <rect>
-         <x>620</x>
+         <x>630</x>
          <y>20</y>
-         <width>90</width>
+         <width>71</width>
          <height>22</height>
         </rect>
        </property>
@@ -7433,9 +7452,9 @@ après 3 essais BE/BR → accepté.
       <widget class="QDoubleSpinBox" name="doubleSpinBox_voltage_current_limit">
        <property name="geometry">
         <rect>
-         <x>710</x>
+         <x>700</x>
          <y>20</y>
-         <width>85</width>
+         <width>91</width>
          <height>24</height>
         </rect>
        </property>
@@ -7457,7 +7476,7 @@ après 3 essais BE/BR → accepté.
         <rect>
          <x>10</x>
          <y>58</y>
-         <width>90</width>
+         <width>71</width>
          <height>22</height>
         </rect>
        </property>
@@ -7468,7 +7487,7 @@ après 3 essais BE/BR → accepté.
       <widget class="QSpinBox" name="spinBox_voltage_nb_inverseurs">
        <property name="geometry">
         <rect>
-         <x>100</x>
+         <x>70</x>
          <y>58</y>
          <width>90</width>
          <height>24</height>
@@ -7485,32 +7504,32 @@ après 3 essais BE/BR → accepté.
        </property>
       </widget>
       <widget class="QLabel" name="label_voltage_stable">
-       <property name="toolTip">
-        <string>La validation stable confirme la mesure mais ne remplace jamais la tension capturée au premier passage.</string>
-       </property>
        <property name="geometry">
         <rect>
-         <x>205</x>
+         <x>190</x>
          <y>58</y>
-         <width>105</width>
+         <width>91</width>
          <height>22</height>
         </rect>
+       </property>
+       <property name="toolTip">
+        <string>La validation stable confirme la mesure mais ne remplace jamais la tension capturée au premier passage.</string>
        </property>
        <property name="text">
         <string>Validation (ms)</string>
        </property>
       </widget>
       <widget class="QSpinBox" name="spinBox_voltage_stable_ms">
-       <property name="toolTip">
-        <string>Durée de stabilité utilisée uniquement pour confirmer le transfert. La tension reste celle du premier passage complet, avant les rebonds.</string>
-       </property>
        <property name="geometry">
         <rect>
-         <x>315</x>
+         <x>280</x>
          <y>58</y>
          <width>80</width>
          <height>24</height>
         </rect>
+       </property>
+       <property name="toolTip">
+        <string>Durée de stabilité utilisée uniquement pour confirmer le transfert. La tension reste celle du premier passage complet, avant les rebonds.</string>
        </property>
        <property name="minimum">
         <number>1</number>
@@ -7531,11 +7550,11 @@ après 3 essais BE/BR → accepté.
          <height>22</height>
         </rect>
        </property>
-       <property name="text">
-        <string>Rapport actif</string>
-       </property>
        <property name="visible">
         <bool>false</bool>
+       </property>
+       <property name="text">
+        <string>Rapport actif</string>
        </property>
       </widget>
       <widget class="QDoubleSpinBox" name="doubleSpinBox_voltage_divider_ratio">
@@ -7546,6 +7565,12 @@ après 3 essais BE/BR → accepté.
          <width>100</width>
          <height>24</height>
         </rect>
+       </property>
+       <property name="visible">
+        <bool>false</bool>
+       </property>
+       <property name="readOnly">
+        <bool>true</bool>
        </property>
        <property name="decimals">
         <number>6</number>
@@ -7559,12 +7584,6 @@ après 3 essais BE/BR → accepté.
        <property name="value">
         <double>12.818182000000000</double>
        </property>
-       <property name="readOnly">
-        <bool>true</bool>
-       </property>
-       <property name="visible">
-        <bool>false</bool>
-       </property>
       </widget>
       <widget class="QLabel" name="label_voltage_offset">
        <property name="geometry">
@@ -7575,11 +7594,11 @@ après 3 essais BE/BR → accepté.
          <height>22</height>
         </rect>
        </property>
-       <property name="text">
-        <string>Offset actif (mV)</string>
-       </property>
        <property name="visible">
         <bool>false</bool>
+       </property>
+       <property name="text">
+        <string>Offset actif (mV)</string>
        </property>
       </widget>
       <widget class="QSpinBox" name="spinBox_voltage_offset_mv">
@@ -7591,6 +7610,12 @@ après 3 essais BE/BR → accepté.
          <height>24</height>
         </rect>
        </property>
+       <property name="visible">
+        <bool>false</bool>
+       </property>
+       <property name="readOnly">
+        <bool>true</bool>
+       </property>
        <property name="minimum">
         <number>-500</number>
        </property>
@@ -7599,12 +7624,6 @@ après 3 essais BE/BR → accepté.
        </property>
        <property name="value">
         <number>0</number>
-       </property>
-       <property name="readOnly">
-        <bool>true</bool>
-       </property>
-       <property name="visible">
-        <bool>false</bool>
        </property>
       </widget>
       <widget class="QLabel" name="label_voltage_accuracy">
@@ -7620,7 +7639,7 @@ après 3 essais BE/BR → accepté.
         <string>color: rgb(120,60,0); font-weight: bold;</string>
        </property>
        <property name="text">
-        <string>Tension officielle = premier passage complet avant rebonds ; validation stable sans recapture.</string>
+        <string>Premier passage avant rebonds | durée maximale recalculée selon la pente minimale EA.</string>
        </property>
        <property name="alignment">
         <set>Qt::AlignmentFlag::AlignCenter</set>
@@ -7631,7 +7650,7 @@ après 3 essais BE/BR → accepté.
         <rect>
          <x>10</x>
          <y>88</y>
-         <width>90</width>
+         <width>61</width>
          <height>22</height>
         </rect>
        </property>
@@ -7642,9 +7661,9 @@ après 3 essais BE/BR → accepté.
       <widget class="QComboBox" name="comboBox_voltage_relay_type">
        <property name="geometry">
         <rect>
-         <x>100</x>
+         <x>70</x>
          <y>88</y>
-         <width>160</width>
+         <width>111</width>
          <height>24</height>
         </rect>
        </property>
@@ -7662,22 +7681,22 @@ après 3 essais BE/BR → accepté.
       <widget class="QPushButton" name="pushButton_voltage_open_calibration">
        <property name="geometry">
         <rect>
-         <x>275</x>
+         <x>190</x>
          <y>88</y>
-         <width>155</width>
+         <width>91</width>
          <height>24</height>
         </rect>
        </property>
        <property name="text">
-        <string>OUVRIR ÉTALONNAGE</string>
+        <string>ÉTALONNAGE</string>
        </property>
       </widget>
       <widget class="QLabel" name="label_voltage_calibration_summary">
        <property name="geometry">
         <rect>
-         <x>440</x>
+         <x>284</x>
          <y>88</y>
-         <width>355</width>
+         <width>331</width>
          <height>24</height>
         </rect>
        </property>
@@ -7694,27 +7713,33 @@ après 3 essais BE/BR → accepté.
       <widget class="QLabel" name="label_voltage_interphase">
        <property name="geometry">
         <rect>
-         <x>410</x>
+         <x>420</x>
          <y>58</y>
-         <width>155</width>
+         <width>91</width>
          <height>22</height>
         </rect>
        </property>
-       <property name="text">
-        <string>Attente BE→BR</string>
-       </property>
        <property name="toolTip">
         <string>Temps demandé entre la fin de la première mesure et le démarrage effectif de la seconde rampe. Inclut la configuration obligatoire de l'alimentation EA.</string>
+       </property>
+       <property name="text">
+        <string>Attente BE→BR</string>
        </property>
       </widget>
       <widget class="QDoubleSpinBox" name="doubleSpinBox_voltage_interphase_s">
        <property name="geometry">
         <rect>
-         <x>565</x>
+         <x>520</x>
          <y>58</y>
-         <width>90</width>
+         <width>101</width>
          <height>24</height>
         </rect>
+       </property>
+       <property name="toolTip">
+        <string>Durée demandée entre les deux mesures. La valeur est mémorisée et figée au démarrage du cycle. Minimum 3,0 s.</string>
+       </property>
+       <property name="suffix">
+        <string> s</string>
        </property>
        <property name="decimals">
         <number>3</number>
@@ -7731,27 +7756,68 @@ après 3 essais BE/BR → accepté.
        <property name="value">
         <double>3.000000000000000</double>
        </property>
-       <property name="suffix">
-        <string> s</string>
-       </property>
-       <property name="toolTip">
-        <string>Délai entre opérations. Minimum 3,0 s : délai SUBMIT EA, relecture des paramètres et armement RP2040 inclus.</string>
-       </property>
       </widget>
       <widget class="QLabel" name="label_voltage_interphase_note">
        <property name="geometry">
         <rect>
-         <x>665</x>
+         <x>630</x>
          <y>58</y>
          <width>130</width>
          <height>24</height>
         </rect>
        </property>
+       <property name="toolTip">
+        <string>Le logiciel prépare la seconde rampe pendant ce délai puis la démarre à l'échéance demandée.</string>
+       </property>
        <property name="text">
         <string>Délai réel contrôlé</string>
        </property>
+      </widget>
+      <widget class="QLabel" name="label_voltage_chrono_v">
+       <property name="geometry">
+        <rect>
+         <x>620</x>
+         <y>88</y>
+         <width>95</width>
+         <height>22</height>
+        </rect>
+       </property>
        <property name="toolTip">
-        <string>Le logiciel prépare la seconde rampe pendant ce délai puis la démarre à l'échéance demandée.</string>
+        <string>Tension continue fournie automatiquement par l’alimentation EA pendant la chronométrie de MESURER TOUT.</string>
+       </property>
+       <property name="text">
+        <string>Tension chrono</string>
+       </property>
+      </widget>
+      <widget class="QDoubleSpinBox" name="doubleSpinBox_voltage_chrono_v">
+       <property name="geometry">
+        <rect>
+         <x>710</x>
+         <y>88</y>
+         <width>91</width>
+         <height>24</height>
+        </rect>
+       </property>
+       <property name="toolTip">
+        <string>Tension fixe de l’EA utilisée uniquement pour la chronométrie automatique après les rampes de tension.</string>
+       </property>
+       <property name="suffix">
+        <string> V</string>
+       </property>
+       <property name="decimals">
+        <number>3</number>
+       </property>
+       <property name="minimum">
+        <double>0.100000000000000</double>
+       </property>
+       <property name="maximum">
+        <double>40.000000000000000</double>
+       </property>
+       <property name="singleStep">
+        <double>0.100000000000000</double>
+       </property>
+       <property name="value">
+        <double>28.000000000000000</double>
        </property>
       </widget>
      </widget>
@@ -7772,7 +7838,7 @@ après 3 essais BE/BR → accepté.
         <rect>
          <x>10</x>
          <y>22</y>
-         <width>175</width>
+         <width>131</width>
          <height>36</height>
         </rect>
        </property>
@@ -7788,7 +7854,7 @@ après 3 essais BE/BR → accepté.
         <rect>
          <x>195</x>
          <y>22</y>
-         <width>175</width>
+         <width>141</width>
          <height>36</height>
         </rect>
        </property>
@@ -7815,13 +7881,32 @@ après 3 essais BE/BR → accepté.
         <string>CYCLE COLLAGE + DÉCOLLAGE</string>
        </property>
       </widget>
-      <widget class="QPushButton" name="pushButton_voltage_stop">
+      <widget class="QPushButton" name="pushButton_voltage_measure_all">
        <property name="geometry">
         <rect>
          <x>615</x>
          <y>22</y>
          <width>180</width>
          <height>36</height>
+        </rect>
+       </property>
+       <property name="toolTip">
+        <string>Mesure les tensions puis règle automatiquement l’EA à la tension fixe de chronométrie. Aucun changement manuel de source.</string>
+       </property>
+       <property name="styleSheet">
+        <string>background-color: rgb(0,90,160); color: white; font-weight: bold;</string>
+       </property>
+       <property name="text">
+        <string>MESURER TOUT</string>
+       </property>
+      </widget>
+      <widget class="QPushButton" name="pushButton_voltage_stop">
+       <property name="geometry">
+        <rect>
+         <x>615</x>
+         <y>66</y>
+         <width>180</width>
+         <height>28</height>
         </rect>
        </property>
        <property name="styleSheet">
@@ -7836,7 +7921,7 @@ après 3 essais BE/BR → accepté.
         <rect>
          <x>10</x>
          <y>66</y>
-         <width>785</width>
+         <width>595</width>
          <height>28</height>
         </rect>
        </property>
@@ -7851,13 +7936,354 @@ après 3 essais BE/BR → accepté.
        </property>
       </widget>
      </widget>
+     <widget class="QGroupBox" name="groupBox_voltage_contacts">
+      <property name="geometry">
+       <rect>
+        <x>580</x>
+        <y>530</y>
+        <width>241</width>
+        <height>91</height>
+       </rect>
+      </property>
+      <property name="title">
+       <string>Etat des Contacts en direct </string>
+      </property>
+      <widget class="QLabel" name="label_voltage_contact_name_r1">
+       <property name="geometry">
+        <rect>
+         <x>8</x>
+         <y>20</y>
+         <width>22</width>
+         <height>20</height>
+        </rect>
+       </property>
+       <property name="styleSheet">
+        <string>color: rgb(0,120,55); font-weight: bold;</string>
+       </property>
+       <property name="text">
+        <string>R1</string>
+       </property>
+       <property name="alignment">
+        <set>Qt::AlignmentFlag::AlignCenter</set>
+       </property>
+      </widget>
+      <widget class="QLabel" name="label_voltage_led_r1">
+       <property name="geometry">
+        <rect>
+         <x>35</x>
+         <y>20</y>
+         <width>18</width>
+         <height>18</height>
+        </rect>
+       </property>
+       <property name="toolTip">
+        <string>R1 : état inconnu</string>
+       </property>
+       <property name="styleSheet">
+        <string>background-color: rgb(95,95,95); border: 1px solid rgb(55,55,55); border-radius: 9px; padding: 0px; margin: 0px;</string>
+       </property>
+       <property name="text">
+        <string/>
+       </property>
+       <property name="alignment">
+        <set>Qt::AlignmentFlag::AlignCenter</set>
+       </property>
+      </widget>
+      <widget class="QLabel" name="label_voltage_contact_name_r2">
+       <property name="geometry">
+        <rect>
+         <x>66</x>
+         <y>20</y>
+         <width>22</width>
+         <height>20</height>
+        </rect>
+       </property>
+       <property name="styleSheet">
+        <string>color: rgb(0,120,55); font-weight: bold;</string>
+       </property>
+       <property name="text">
+        <string>R2</string>
+       </property>
+       <property name="alignment">
+        <set>Qt::AlignmentFlag::AlignCenter</set>
+       </property>
+      </widget>
+      <widget class="QLabel" name="label_voltage_led_r2">
+       <property name="geometry">
+        <rect>
+         <x>93</x>
+         <y>20</y>
+         <width>18</width>
+         <height>18</height>
+        </rect>
+       </property>
+       <property name="toolTip">
+        <string>R2 : état inconnu</string>
+       </property>
+       <property name="styleSheet">
+        <string>background-color: rgb(95,95,95); border: 1px solid rgb(55,55,55); border-radius: 9px; padding: 0px; margin: 0px;</string>
+       </property>
+       <property name="text">
+        <string/>
+       </property>
+       <property name="alignment">
+        <set>Qt::AlignmentFlag::AlignCenter</set>
+       </property>
+      </widget>
+      <widget class="QLabel" name="label_voltage_contact_name_r3">
+       <property name="geometry">
+        <rect>
+         <x>124</x>
+         <y>20</y>
+         <width>22</width>
+         <height>20</height>
+        </rect>
+       </property>
+       <property name="styleSheet">
+        <string>color: rgb(0,120,55); font-weight: bold;</string>
+       </property>
+       <property name="text">
+        <string>R3</string>
+       </property>
+       <property name="alignment">
+        <set>Qt::AlignmentFlag::AlignCenter</set>
+       </property>
+      </widget>
+      <widget class="QLabel" name="label_voltage_led_r3">
+       <property name="geometry">
+        <rect>
+         <x>151</x>
+         <y>20</y>
+         <width>18</width>
+         <height>18</height>
+        </rect>
+       </property>
+       <property name="toolTip">
+        <string>R3 : état inconnu</string>
+       </property>
+       <property name="styleSheet">
+        <string>background-color: rgb(95,95,95); border: 1px solid rgb(55,55,55); border-radius: 9px; padding: 0px; margin: 0px;</string>
+       </property>
+       <property name="text">
+        <string/>
+       </property>
+       <property name="alignment">
+        <set>Qt::AlignmentFlag::AlignCenter</set>
+       </property>
+      </widget>
+      <widget class="QLabel" name="label_voltage_contact_name_r4">
+       <property name="geometry">
+        <rect>
+         <x>182</x>
+         <y>20</y>
+         <width>22</width>
+         <height>20</height>
+        </rect>
+       </property>
+       <property name="styleSheet">
+        <string>color: rgb(0,120,55); font-weight: bold;</string>
+       </property>
+       <property name="text">
+        <string>R4</string>
+       </property>
+       <property name="alignment">
+        <set>Qt::AlignmentFlag::AlignCenter</set>
+       </property>
+      </widget>
+      <widget class="QLabel" name="label_voltage_led_r4">
+       <property name="geometry">
+        <rect>
+         <x>209</x>
+         <y>20</y>
+         <width>18</width>
+         <height>18</height>
+        </rect>
+       </property>
+       <property name="toolTip">
+        <string>R4 : état inconnu</string>
+       </property>
+       <property name="styleSheet">
+        <string>background-color: rgb(95,95,95); border: 1px solid rgb(55,55,55); border-radius: 9px; padding: 0px; margin: 0px;</string>
+       </property>
+       <property name="text">
+        <string/>
+       </property>
+       <property name="alignment">
+        <set>Qt::AlignmentFlag::AlignCenter</set>
+       </property>
+      </widget>
+      <widget class="QLabel" name="label_voltage_contact_name_t1">
+       <property name="geometry">
+        <rect>
+         <x>8</x>
+         <y>60</y>
+         <width>22</width>
+         <height>20</height>
+        </rect>
+       </property>
+       <property name="styleSheet">
+        <string>color: rgb(180,0,0); font-weight: bold;</string>
+       </property>
+       <property name="text">
+        <string>T1</string>
+       </property>
+       <property name="alignment">
+        <set>Qt::AlignmentFlag::AlignCenter</set>
+       </property>
+      </widget>
+      <widget class="QLabel" name="label_voltage_led_t1">
+       <property name="geometry">
+        <rect>
+         <x>35</x>
+         <y>60</y>
+         <width>18</width>
+         <height>18</height>
+        </rect>
+       </property>
+       <property name="toolTip">
+        <string>T1 : état inconnu</string>
+       </property>
+       <property name="styleSheet">
+        <string>background-color: rgb(95,95,95); border: 1px solid rgb(55,55,55); border-radius: 9px; padding: 0px; margin: 0px;</string>
+       </property>
+       <property name="text">
+        <string/>
+       </property>
+       <property name="alignment">
+        <set>Qt::AlignmentFlag::AlignCenter</set>
+       </property>
+      </widget>
+      <widget class="QLabel" name="label_voltage_contact_name_t2">
+       <property name="geometry">
+        <rect>
+         <x>66</x>
+         <y>60</y>
+         <width>22</width>
+         <height>20</height>
+        </rect>
+       </property>
+       <property name="styleSheet">
+        <string>color: rgb(180,0,0); font-weight: bold;</string>
+       </property>
+       <property name="text">
+        <string>T2</string>
+       </property>
+       <property name="alignment">
+        <set>Qt::AlignmentFlag::AlignCenter</set>
+       </property>
+      </widget>
+      <widget class="QLabel" name="label_voltage_led_t2">
+       <property name="geometry">
+        <rect>
+         <x>93</x>
+         <y>60</y>
+         <width>18</width>
+         <height>18</height>
+        </rect>
+       </property>
+       <property name="toolTip">
+        <string>T2 : état inconnu</string>
+       </property>
+       <property name="styleSheet">
+        <string>background-color: rgb(95,95,95); border: 1px solid rgb(55,55,55); border-radius: 9px; padding: 0px; margin: 0px;</string>
+       </property>
+       <property name="text">
+        <string/>
+       </property>
+       <property name="alignment">
+        <set>Qt::AlignmentFlag::AlignCenter</set>
+       </property>
+      </widget>
+      <widget class="QLabel" name="label_voltage_contact_name_t3">
+       <property name="geometry">
+        <rect>
+         <x>124</x>
+         <y>60</y>
+         <width>22</width>
+         <height>20</height>
+        </rect>
+       </property>
+       <property name="styleSheet">
+        <string>color: rgb(180,0,0); font-weight: bold;</string>
+       </property>
+       <property name="text">
+        <string>T3</string>
+       </property>
+       <property name="alignment">
+        <set>Qt::AlignmentFlag::AlignCenter</set>
+       </property>
+      </widget>
+      <widget class="QLabel" name="label_voltage_led_t3">
+       <property name="geometry">
+        <rect>
+         <x>151</x>
+         <y>60</y>
+         <width>18</width>
+         <height>18</height>
+        </rect>
+       </property>
+       <property name="toolTip">
+        <string>T3 : état inconnu</string>
+       </property>
+       <property name="styleSheet">
+        <string>background-color: rgb(95,95,95); border: 1px solid rgb(55,55,55); border-radius: 9px; padding: 0px; margin: 0px;</string>
+       </property>
+       <property name="text">
+        <string/>
+       </property>
+       <property name="alignment">
+        <set>Qt::AlignmentFlag::AlignCenter</set>
+       </property>
+      </widget>
+      <widget class="QLabel" name="label_voltage_contact_name_t4">
+       <property name="geometry">
+        <rect>
+         <x>182</x>
+         <y>60</y>
+         <width>22</width>
+         <height>20</height>
+        </rect>
+       </property>
+       <property name="styleSheet">
+        <string>color: rgb(180,0,0); font-weight: bold;</string>
+       </property>
+       <property name="text">
+        <string>T4</string>
+       </property>
+       <property name="alignment">
+        <set>Qt::AlignmentFlag::AlignCenter</set>
+       </property>
+      </widget>
+      <widget class="QLabel" name="label_voltage_led_t4">
+       <property name="geometry">
+        <rect>
+         <x>209</x>
+         <y>60</y>
+         <width>18</width>
+         <height>18</height>
+        </rect>
+       </property>
+       <property name="toolTip">
+        <string>T4 : état inconnu</string>
+       </property>
+       <property name="styleSheet">
+        <string>background-color: rgb(95,95,95); border: 1px solid rgb(55,55,55); border-radius: 9px; padding: 0px; margin: 0px;</string>
+       </property>
+       <property name="text">
+        <string/>
+       </property>
+       <property name="alignment">
+        <set>Qt::AlignmentFlag::AlignCenter</set>
+       </property>
+      </widget>
+     </widget>
      <widget class="QTableWidget" name="tableWidget_voltage_results">
       <property name="geometry">
        <rect>
         <x>10</x>
-        <y>528</y>
-        <width>810</width>
-        <height>128</height>
+        <y>529</y>
+        <width>561</width>
+        <height>171</height>
        </rect>
       </property>
       <property name="editTriggers">
@@ -7888,9 +8314,9 @@ après 3 essais BE/BR → accepté.
       <property name="geometry">
        <rect>
         <x>10</x>
-        <y>662</y>
+        <y>710</y>
         <width>810</width>
-        <height>40</height>
+        <height>38</height>
        </rect>
       </property>
       <property name="styleSheet">
@@ -7899,20 +8325,20 @@ après 3 essais BE/BR → accepté.
       <property name="text">
        <string>Prêt - connecter le RP2040 et l'alimentation EA.</string>
       </property>
-      <property name="wordWrap">
-       <bool>true</bool>
-      </property>
       <property name="alignment">
        <set>Qt::AlignmentFlag::AlignCenter</set>
+      </property>
+      <property name="wordWrap">
+       <bool>true</bool>
       </property>
      </widget>
      <widget class="QPushButton" name="pushButton_voltage_export_xlsx">
       <property name="geometry">
        <rect>
-        <x>250</x>
-        <y>710</y>
-        <width>150</width>
-        <height>32</height>
+        <x>580</x>
+        <y>620</y>
+        <width>241</width>
+        <height>41</height>
        </rect>
       </property>
       <property name="text">
@@ -7922,10 +8348,10 @@ après 3 essais BE/BR → accepté.
      <widget class="QPushButton" name="pushButton_voltage_export_pdf">
       <property name="geometry">
        <rect>
-        <x>420</x>
-        <y>710</y>
-        <width>150</width>
-        <height>32</height>
+        <x>580</x>
+        <y>660</y>
+        <width>241</width>
+        <height>41</height>
        </rect>
       </property>
       <property name="text">
@@ -7987,9 +8413,9 @@ après 3 essais BE/BR → accepté.
       <widget class="QLineEdit" name="lineEdit_calibration_operator">
        <property name="geometry">
         <rect>
-         <x>80</x>
+         <x>70</x>
          <y>24</y>
-         <width>170</width>
+         <width>161</width>
          <height>24</height>
         </rect>
        </property>
@@ -7997,7 +8423,7 @@ après 3 essais BE/BR → accepté.
       <widget class="QLabel" name="label_calibration_meter">
        <property name="geometry">
         <rect>
-         <x>265</x>
+         <x>240</x>
          <y>24</y>
          <width>105</width>
          <height>22</height>
@@ -8010,7 +8436,7 @@ après 3 essais BE/BR → accepté.
       <widget class="QLineEdit" name="lineEdit_calibration_meter">
        <property name="geometry">
         <rect>
-         <x>370</x>
+         <x>330</x>
          <y>24</y>
          <width>170</width>
          <height>24</height>
@@ -8020,7 +8446,7 @@ après 3 essais BE/BR → accepté.
       <widget class="QLabel" name="label_calibration_date">
        <property name="geometry">
         <rect>
-         <x>555</x>
+         <x>510</x>
          <y>24</y>
          <width>45</width>
          <height>22</height>
@@ -8033,17 +8459,17 @@ après 3 essais BE/BR → accepté.
       <widget class="QDateEdit" name="dateEdit_calibration_date">
        <property name="geometry">
         <rect>
-         <x>600</x>
+         <x>540</x>
          <y>24</y>
          <width>120</width>
          <height>24</height>
         </rect>
        </property>
-       <property name="calendarPopup">
-        <bool>true</bool>
-       </property>
        <property name="displayFormat">
         <string>dd/MM/yyyy</string>
+       </property>
+       <property name="calendarPopup">
+        <bool>true</bool>
        </property>
       </widget>
       <widget class="QLabel" name="label_calibration_valid_days">
@@ -8062,7 +8488,7 @@ après 3 essais BE/BR → accepté.
       <widget class="QSpinBox" name="spinBox_calibration_valid_days">
        <property name="geometry">
         <rect>
-         <x>115</x>
+         <x>90</x>
          <y>58</y>
          <width>80</width>
          <height>24</height>
@@ -8081,7 +8507,7 @@ après 3 essais BE/BR → accepté.
       <widget class="QLabel" name="label_calibration_tolerance">
        <property name="geometry">
         <rect>
-         <x>215</x>
+         <x>180</x>
          <y>58</y>
          <width>135</width>
          <height>22</height>
@@ -8094,7 +8520,7 @@ après 3 essais BE/BR → accepté.
       <widget class="QDoubleSpinBox" name="doubleSpinBox_calibration_tolerance_v">
        <property name="geometry">
         <rect>
-         <x>350</x>
+         <x>300</x>
          <y>58</y>
          <width>90</width>
          <height>24</height>
@@ -8104,22 +8530,22 @@ après 3 essais BE/BR → accepté.
         <number>3</number>
        </property>
        <property name="minimum">
-        <double>0.001</double>
+        <double>0.001000000000000</double>
        </property>
        <property name="maximum">
-        <double>1.000</double>
+        <double>1.000000000000000</double>
        </property>
        <property name="singleStep">
-        <double>0.005</double>
+        <double>0.005000000000000</double>
        </property>
        <property name="value">
-        <double>0.050</double>
+        <double>0.050000000000000</double>
        </property>
       </widget>
       <widget class="QPushButton" name="pushButton_calibration_request_ads">
        <property name="geometry">
         <rect>
-         <x>555</x>
+         <x>490</x>
          <y>58</y>
          <width>165</width>
          <height>24</height>
@@ -8132,9 +8558,9 @@ après 3 essais BE/BR → accepté.
       <widget class="QLabel" name="label_calibration_live">
        <property name="geometry">
         <rect>
-         <x>730</x>
+         <x>674</x>
          <y>24</y>
-         <width>65</width>
+         <width>121</width>
          <height>58</height>
         </rect>
        </property>
@@ -8171,11 +8597,11 @@ après 3 essais BE/BR → accepté.
          <height>22</height>
         </rect>
        </property>
-       <property name="text">
-        <string>Point                         Valeur multimètre (V)           RAW ADS capturé                 Action</string>
-       </property>
        <property name="styleSheet">
         <string>font-weight: bold;</string>
+       </property>
+       <property name="text">
+        <string>Point                                                          Valeur multimètre (V)                     RAW ADS capturé                        Action</string>
        </property>
       </widget>
       <widget class="QLabel" name="label_calibration_low">
@@ -8204,13 +8630,13 @@ après 3 essais BE/BR → accepté.
         <number>4</number>
        </property>
        <property name="minimum">
-        <double>0.0000</double>
+        <double>0.000000000000000</double>
        </property>
        <property name="maximum">
-        <double>5.0000</double>
+        <double>5.000000000000000</double>
        </property>
        <property name="value">
-        <double>0.0000</double>
+        <double>0.000000000000000</double>
        </property>
       </widget>
       <widget class="QLineEdit" name="lineEdit_calibration_low_raw">
@@ -8222,11 +8648,11 @@ après 3 essais BE/BR → accepté.
          <height>24</height>
         </rect>
        </property>
-       <property name="readOnly">
-        <bool>true</bool>
-       </property>
        <property name="text">
         <string>--</string>
+       </property>
+       <property name="readOnly">
+        <bool>true</bool>
        </property>
       </widget>
       <widget class="QPushButton" name="pushButton_calibration_capture_low">
@@ -8268,13 +8694,13 @@ après 3 essais BE/BR → accepté.
         <number>4</number>
        </property>
        <property name="minimum">
-        <double>1.0000</double>
+        <double>1.000000000000000</double>
        </property>
        <property name="maximum">
-        <double>40.0000</double>
+        <double>40.000000000000000</double>
        </property>
        <property name="value">
-        <double>30.0000</double>
+        <double>30.000000000000000</double>
        </property>
       </widget>
       <widget class="QLineEdit" name="lineEdit_calibration_high_raw">
@@ -8286,11 +8712,11 @@ après 3 essais BE/BR → accepté.
          <height>24</height>
         </rect>
        </property>
-       <property name="readOnly">
-        <bool>true</bool>
-       </property>
        <property name="text">
         <string>--</string>
+       </property>
+       <property name="readOnly">
+        <bool>true</bool>
        </property>
       </widget>
       <widget class="QPushButton" name="pushButton_calibration_capture_high">
@@ -8332,13 +8758,13 @@ après 3 essais BE/BR → accepté.
         <number>4</number>
        </property>
        <property name="minimum">
-        <double>0.1000</double>
+        <double>0.100000000000000</double>
        </property>
        <property name="maximum">
-        <double>40.0000</double>
+        <double>40.000000000000000</double>
        </property>
        <property name="value">
-        <double>15.0000</double>
+        <double>15.000000000000000</double>
        </property>
       </widget>
       <widget class="QLineEdit" name="lineEdit_calibration_check_raw">
@@ -8350,11 +8776,11 @@ après 3 essais BE/BR → accepté.
          <height>24</height>
         </rect>
        </property>
-       <property name="readOnly">
-        <bool>true</bool>
-       </property>
        <property name="text">
         <string>--</string>
+       </property>
+       <property name="readOnly">
+        <bool>true</bool>
        </property>
       </widget>
       <widget class="QPushButton" name="pushButton_calibration_capture_check">
@@ -8587,8 +9013,8 @@ après 3 essais BE/BR → accepté.
     </rect>
    </property>
   </widget>
-  <widget class="QStatusBar" name="statusbar" />
+  <widget class="QStatusBar" name="statusbar"/>
  </widget>
- <resources />
- <connections />
+ <resources/>
+ <connections/>
 </ui>

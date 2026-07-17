@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Tests hors matériel de la logique V2.12.2 de capture avant rebonds."""
+"""Tests hors matériel de la logique V2.12.3 de capture avant rebonds."""
 
 from dataclasses import dataclass
 from pathlib import Path
@@ -68,13 +68,13 @@ def test_no_bounce() -> None:
 
 def test_firmware_markers() -> None:
     base = Path(__file__).resolve().parent
-    fw = (base / "rp2040_relais_28vdc_precision_v2_12_2_ADS1115_GP26_RGB.ino").read_text(encoding="utf-8")
-    py = (base / "main_ihm_relais_rp2040_v2_12_2.py").read_text(encoding="utf-8")
+    fw = (base / "rp2040_relais_28vdc_precision_v2_12_3_ADS1115_GP26_RGB.ino").read_text(encoding="utf-8")
+    py = (base / "main_ihm_relais_rp2040_v2_12_3.py").read_text(encoding="utf-8")
     assert "voltageStableStartUs[5]" in fw
     assert "CAPTURE=FIRST_PASSAGE" in fw
     assert "VALIDATION=STABLE_AFTER_CAPTURE" in fw
     assert "Les rebonds ultérieurs ne remplacent jamais cette valeur" in fw
-    assert "Téléverser le firmware V2.12.2" in py
+    assert "Téléverser le firmware V2.12.3" in py
     assert 'capture_policy != "FIRST_PASSAGE"' in py
 
 

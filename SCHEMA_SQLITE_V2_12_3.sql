@@ -1,4 +1,8 @@
--- SCHÉMAS SQLITE DE RÉFÉRENCE — NEUTRAL SCREEN V2.12.2
+-- SCHÉMAS SQLITE DE RÉFÉRENCE — NEUTRAL SCREEN V2.12.3 R4
+-- Bases vides fournies dans le pack. Les migrations Python restent obligatoires
+-- pour conserver la compatibilité avec les bases V2.12.2 et antérieures.
+
+-- ============================================================
 -- Base 1 : production_essais.sqlite3
 PRAGMA foreign_keys=ON;
 CREATE TABLE IF NOT EXISTS settings (
@@ -93,6 +97,7 @@ CREATE TABLE IF NOT EXISTS mesures_tension_fonctionnement (
     interphase_s REAL NOT NULL DEFAULT 0,
     interphase_actual_s REAL,
     current_limit_a REAL NOT NULL DEFAULT 0,
+    chrono_supply_v REAL NOT NULL DEFAULT 0,
     stable_ms INTEGER NOT NULL DEFAULT 0,
     capture_policy TEXT NOT NULL DEFAULT 'FIRST_PASSAGE',
     validation_policy TEXT NOT NULL DEFAULT 'STABLE_AFTER_CAPTURE',
@@ -116,7 +121,26 @@ CREATE TABLE IF NOT EXISTS mesures_tension_fonctionnement (
     pickup_time_json TEXT NOT NULL DEFAULT '{}',
     dropout_time_json TEXT NOT NULL DEFAULT '{}',
     ea_readback_json TEXT NOT NULL DEFAULT '{}',
+    pickup_plausibility_status TEXT NOT NULL DEFAULT '',
+    dropout_plausibility_status TEXT NOT NULL DEFAULT '',
+    pickup_expected_elapsed_s REAL,
+    dropout_expected_elapsed_s REAL,
+    pickup_elapsed_error_s REAL,
+    dropout_elapsed_error_s REAL,
+    plausibility_json TEXT NOT NULL DEFAULT '{}',
+    ea_stop_confirmed INTEGER NOT NULL DEFAULT -1,
+    ea_final_output_state TEXT NOT NULL DEFAULT '',
+    ea_final_voltage_v REAL,
+    ea_final_generator_state TEXT NOT NULL DEFAULT '',
+    ea_stop_detail TEXT NOT NULL DEFAULT '',
     resultat TEXT NOT NULL DEFAULT '',
     timestamp TEXT NOT NULL DEFAULT ''
 );
 CREATE INDEX IF NOT EXISTS idx_voltage_lot_sn ON mesures_tension_fonctionnement(lot, sn);
+
+-- Valeurs ea_stop_confirmed : 1 = confirmé, 0 = non confirmé, -1 = historique/non renseigné.
+
+-- V2.12.3 R4 : les deux tables ci-dessus restent séparées physiquement.
+-- L'IHM les agrège par lot/SN dans Gestion Base et dans les exports chronométrie.
+
+-- V2.12.3 R8 : chrono_supply_v mémorise la tension continue demandée à l’EA pour MESURER TOUT.
