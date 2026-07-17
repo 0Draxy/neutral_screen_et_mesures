@@ -1,6 +1,6 @@
 # Audit Claude — Neutral Screen V2.12.3 R10
 
-Analyse intégralement la branche GitHub `v2.12.3-r10-ui-reference` du dépôt `0Draxy/neutral_screen_et_mesures`.
+Analyse intégralement la branche GitHub `v2.12.3-r10` du dépôt `0Draxy/neutral_screen_et_mesures`.
 
 ## Mission
 
