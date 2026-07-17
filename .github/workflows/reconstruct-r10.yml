@@ -7,6 +7,9 @@ on:
     paths:
       - R10_UPGRADE_PARTS/**
       - .github/workflows/reconstruct-r10.yml
+  pull_request:
+    branches:
+      - main
   workflow_dispatch:
 
 permissions:
@@ -20,9 +23,10 @@ jobs:
       QT_QPA_PLATFORM: offscreen
 
     steps:
-      - name: Checkout branch
+      - name: Checkout source branch
         uses: actions/checkout@v4
         with:
+          ref: ${{ github.head_ref || github.ref_name }}
           fetch-depth: 0
 
       - name: Set up Python
@@ -99,5 +103,5 @@ jobs:
             echo "No source changes to commit."
           else
             git commit -m "Publish Neutral Screen V2.12.3 R10 sources"
-            git push
+            git push origin HEAD:v2.12.3-r10-ui-reference
           fi
