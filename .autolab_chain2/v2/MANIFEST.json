@@ -1,9 +1,0 @@
-{
-  "version": "v2",
-  "folder": "MT5_AutoLab_CHAIN2_v2",
-  "runner": "RUN_STAGE.ps1",
-  "files": {
-    "RUN_STAGE.ps1": "7bfb2f7aff0cefcfbeb8a6f8c748389012a2433ef20a18230bd5bb2ebd3a7ea4",
-    "README.txt": "bf45e60f315b58e2b564142dbd4b16d5ca7612540e617e6f6d62634930e36bf6"
-  }
-}
