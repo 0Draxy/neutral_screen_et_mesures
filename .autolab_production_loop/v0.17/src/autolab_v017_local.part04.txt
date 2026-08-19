@@ -1,0 +1,126 @@
+   else if(flatEnough && bodyOk && shortPrior && shortConfirm && shortRegime) direction=-1;
+
+   return direction!=0;
+}}
+
+void TryEntry()
+{{
+   ManagePosition();
+   if(HasPosition()) return;
+   int direction=0;
+   double atrValue=0.0;
+   if(!Signal(direction,atrValue)) return;
+
+   MqlTick tick;
+   if(!SymbolInfoTick(_Symbol,tick) || tick.ask<=0.0 || tick.bid<=0.0) return;
+   double spread=tick.ask-tick.bid;
+   if(spread<=0.0 || spread>atrValue*MaxSpreadATR) return;
+
+   double point=SymbolInfoDouble(_Symbol,SYMBOL_POINT);
+   int digits=(int)SymbolInfoInteger(_Symbol,SYMBOL_DIGITS);
+   long stopsLevel=SymbolInfoInteger(_Symbol,SYMBOL_TRADE_STOPS_LEVEL);
+   double minDist=(double)(stopsLevel+2)*point;
+   double stopDist=MathMax(atrValue*StopATR,minDist);
+   if(stopDist<=0.0) return;
+
+   ENUM_ORDER_TYPE type=(direction>0 ? ORDER_TYPE_BUY : ORDER_TYPE_SELL);
+   double entry=(direction>0 ? tick.ask : tick.bid);
+   double sl=(direction>0 ? entry-stopDist : entry+stopDist);
+   double tp=(direction>0 ? entry+stopDist*RewardRisk : entry-stopDist*RewardRisk);
+   sl=NormalizeDouble(sl,digits);
+   tp=NormalizeDouble(tp,digits);
+
+   double vol=RiskBasedVolume(type,entry,sl);
+   if(vol<=0.0) return;
+
+   bool ok=false;
+   if(direction>0)
+      ok=trade.Buy(vol,_Symbol,0.0,sl,tp,"AutoLabV017");
+   else
+      ok=trade.Sell(vol,_Symbol,0.0,sl,tp,"AutoLabV017");
+
+   if(!ok)
+      Print("Entry failed ",trade.ResultRetcode()," ",trade.ResultRetcodeDescription());
+}}
+
+int OnInit()
+{{
+   if(RiskPercent<=0.0 || RiskPercent>1.0 ||
+      ATRPeriod<2 || RSIPeriod<2 ||
+      FastEMAPeriod<2 || SlowEMAPeriod<=FastEMAPeriod ||
+      StopATR<=0.0 || RewardRisk<=0.0 ||
+      VolMin<0.0 || VolMax<=VolMin || SlopeMin<0.0)
+      return INIT_PARAMETERS_INCORRECT;
+
+   hFastEMA=iMA(_Symbol,PERIOD_H1,FastEMAPeriod,0,MODE_EMA,PRICE_CLOSE);
+   hSlowEMA=iMA(_Symbol,PERIOD_H1,SlowEMAPeriod,0,MODE_EMA,PRICE_CLOSE);
+   hRSI=iRSI(_Symbol,PERIOD_H1,RSIPeriod,PRICE_CLOSE);
+   hATR=iATR(_Symbol,PERIOD_H1,ATRPeriod);
+
+   if(hFastEMA==INVALID_HANDLE || hSlowEMA==INVALID_HANDLE ||
+      hRSI==INVALID_HANDLE || hATR==INVALID_HANDLE)
+      return INIT_FAILED;
+
+   trade.SetExpertMagicNumber(MAGIC_NUMBER);
+   trade.SetDeviationInPoints(10);
+   trade.SetTypeFillingBySymbol(_Symbol);
+   lastBarTime=iTime(_Symbol,PERIOD_H1,0);
+   return INIT_SUCCEEDED;
+}}
+
+void OnDeinit(const int reason)
+{{
+   if(hFastEMA!=INVALID_HANDLE) IndicatorRelease(hFastEMA);
+   if(hSlowEMA!=INVALID_HANDLE) IndicatorRelease(hSlowEMA);
+   if(hRSI!=INVALID_HANDLE) IndicatorRelease(hRSI);
+   if(hATR!=INVALID_HANDLE) IndicatorRelease(hATR);
+}}
+
+void OnTick()
+{{
+   if(IsNewBar()) TryEntry();
+}}
+'''
+b.mql_source = mql_source
+
+def cleanup_previous_autolab_versions():
+    current=(0,17,0)
+    archive=B/"archive"/"autolab_handoffs"
+    archive.mkdir(parents=True,exist_ok=True)
+    cleanup_report=b.REP/"AUTOLAB_CLEANUP_V017_LOCAL.txt"
+    archived=[]; removed=[]; blocked=[]
+    b.log("===== NETTOYAGE SECURISE v0.17 =====")
+
+    prior=[]
+    for p in b.REP.glob("AUTOLAB_A_ENVOYER_CHATGPT_V*_LOCAL.zip"):
+        ver=b._version_tokens_from_name(p.name)
+        if ver and ver<current: prior.append((ver,p))
+    if prior:
+        prior.sort(key=lambda x:x[0],reverse=True)
+        _,p=prior[0]
+        dest=archive/p.name
+        try:
+            shutil.copy2(p,dest); archived.append(str(dest)); b.log("Handoff precedent archive: "+str(dest))
+        except Exception as exc:
+            blocked.append(str(p)+" [ARCHIVE: "+str(exc)+"]"); b.log("Archive impossible: "+str(exc))
+
+    targets=[]
+    for p in B.glob("MT5_AutoLab_v*"):
+        try:
+            if p.resolve()==PKG.resolve(): continue
+        except Exception: pass
+        ver=b._version_tokens_from_name(p.name)
+        if ver and ver<current: targets.append(p)
+    for parent in (B/"autolab",B/"experiments"):
+        if parent.exists():
+            for p in parent.glob("v*"):
+                ver=b._version_tokens_from_name(p.name)
+                if ver and ver<current: targets.append(p)
+
+    for pat in ("MT5_AutoLab_LOOPTEST_*","MT5_AutoLab_CHAIN*","_LOOPTEST_*","_CHAIN*","_CHAIN_OUTBOX","chain_bridge","_AUTOLOOP_V014_TO_V015","_AUTOLOOP_V016_TO_V017"):
+        for p in B.glob(pat):
+            if p.exists() and p not in targets: targets.append(p)
+
+    if targets:
+        escaped=[str(p).replace("'","''") for p in targets]
+        arr=",".join("'"+x+"'" for x in escaped)
