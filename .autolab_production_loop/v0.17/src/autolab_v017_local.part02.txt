@@ -1,0 +1,100 @@
+        "lookback": 24, "aux_lookback": 72,
+        "level1": 28.0, "level2": 1.10, "flat_atr": 1.10,
+        "filter_a": 3.0, "filter_b": 0.05,
+        "slope_min": -99.0, "slope_max": 99.0,
+        "vol_min": 0.0, "vol_max": 99.0,
+        "session_start": -1, "session_end": -1,
+        "stop_atr": 1.25, "rr": 1.15, "max_hold": 8,
+        "max_spread_atr": 0.15,
+    }
+    v=int(variant)
+    core=[
+        (28,1.10,3.0,1.10,0.05,1.25,1.15,8),
+        (30,1.00,3.0,1.10,0.05,1.25,1.15,8),
+        (28,1.10,3.0,1.10,0.05,1.25,1.25,10),
+        (30,1.00,2.0,1.20,0.05,1.25,1.20,10),
+        (28,1.20,4.0,1.20,0.05,1.50,1.20,10),
+        (32,0.90,2.0,1.30,0.05,1.25,1.20,10),
+        (30,1.10,4.0,1.10,0.08,1.50,1.25,12),
+        (28,1.00,3.0,1.00,0.03,1.25,1.15,8),
+    ]
+    rsi_ext,dev,rebound,flat,body,sl,rr,hold=core[v-1]
+    g.update(level1=rsi_ext,level2=dev,filter_a=rebound,flat_atr=flat,
+             filter_b=body,stop_atr=sl,rr=rr,max_hold=hold)
+
+    if family=="reversion_slope_guard":
+        caps=[0.25,0.40,0.55,0.70,0.85,1.00,1.25,1.50]
+        g["slope_max"]=caps[v-1]
+    elif family=="reversion_vol_band":
+        bands=[(0.60,1.20),(0.70,1.30),(0.80,1.40),(0.90,1.50),
+               (0.70,1.50),(0.80,1.60),(0.90,1.70),(0.60,1.60)]
+        g["vol_min"],g["vol_max"]=bands[v-1]
+    elif family=="reversion_session_guard":
+        rows=[(0,20,0.75),(4,20,0.75),(6,20,0.75),(8,20,0.75),
+              (6,18,1.00),(8,18,1.00),(10,20,1.00),(12,20,1.25)]
+        ss,se,cap=rows[v-1]
+        g.update(session_start=ss,session_end=se,slope_max=cap)
+    elif family=="reversion_combo_guard":
+        rows=[(0.50,0.70,1.40,4,20),(0.60,0.70,1.50,6,20),
+              (0.70,0.80,1.50,6,20),(0.80,0.80,1.60,8,20),
+              (0.60,0.70,1.60,8,18),(0.90,0.80,1.70,6,18),
+              (1.00,0.70,1.50,10,20),(1.25,0.60,1.60,8,20)]
+        cap,vmin,vmax,ss,se=rows[v-1]
+        g.update(slope_max=cap,vol_min=vmin,vol_max=vmax,
+                 session_start=ss,session_end=se)
+    else:
+        raise RuntimeError("Famille inconnue: "+family)
+    return g
+b.base_gene = base_gene
+
+def mutate_gene(parent, mut_index):
+    g=dict(parent); fam=g["family"]; mi=int(mut_index)
+    if mi==1:
+        g["level1"]=round(b.clamp(float(g["level1"])+1.0,24.0,34.0),1)
+        g["level2"]=round(b.clamp(float(g["level2"])-0.05,0.80,1.40),2)
+    elif mi==2:
+        g["filter_a"]=round(b.clamp(float(g["filter_a"])+1.0,1.0,6.0),1)
+        g["flat_atr"]=round(b.clamp(float(g["flat_atr"])-0.10,0.80,1.50),2)
+    elif mi==3:
+        g["rr"]=round(b.clamp(float(g["rr"])+0.10,1.00,1.50),2)
+        g["max_hold"]=int(b.clamp(int(g["max_hold"])+2,6,14))
+    else:
+        if fam in ("reversion_slope_guard","reversion_session_guard","reversion_combo_guard"):
+            g["slope_max"]=round(b.clamp(float(g["slope_max"])+0.15,0.20,1.75),2)
+        if fam in ("reversion_vol_band","reversion_combo_guard"):
+            g["vol_min"]=round(b.clamp(float(g["vol_min"])-0.05,0.50,1.10),2)
+            g["vol_max"]=round(b.clamp(float(g["vol_max"])+0.10,1.10,1.90),2)
+    return g
+b.mutate_gene = mutate_gene
+
+def mql_source(g, magic):
+    fam=b.FAMILY_ID[g["family"]]
+    return f'''#property strict
+#property version   "0.17"
+#property description "MT5 AutoLab v0.17 LOCAL structural candidate"
+#include <Trade\\Trade.mqh>
+
+CTrade trade;
+
+const int FAMILY_ID = {fam};
+const ulong MAGIC_NUMBER = {int(magic)};
+const double RiskPercent = {float(g['risk']):.4f};
+const int ATRPeriod = {int(g['atr_period'])};
+const int RSIPeriod = {int(g['rsi_period'])};
+const int FastEMAPeriod = {int(g['fast_ema'])};
+const int SlowEMAPeriod = {int(g['slow_ema'])};
+const int Lookback = {int(g['lookback'])};
+const int AuxLookback = {int(g['aux_lookback'])};
+const double Level1 = {float(g['level1']):.6f};
+const double Level2 = {float(g['level2']):.6f};
+const double FlatATR = {float(g.get('flat_atr',1.0)):.6f};
+const double FilterA = {float(g.get('filter_a',0.0)):.6f};
+const double FilterB = {float(g.get('filter_b',0.20)):.6f};
+const double SlopeMin = {float(g.get('slope_min',0.10)):.6f};
+const double SlopeMax = {float(g.get('slope_max',99.0)):.6f};
+const double VolMin = {float(g.get('vol_min',0.0)):.6f};
+const double VolMax = {float(g.get('vol_max',99.0)):.6f};
+const int SessionStartHour = {int(g.get('session_start',-1))};
+const int SessionEndHour = {int(g.get('session_end',-1))};
+const double StopATR = {float(g['stop_atr']):.6f};
+const double RewardRisk = {float(g['rr']):.6f};
