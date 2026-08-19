@@ -1,0 +1,20 @@
+MT5 AutoLab v0.16 -> v0.17
+================================
+Loop ID parent : 690f1a803602eef86ed2743df3d9e17c
+Handoff parent SHA256 : 8e5add42b1772260b4824d69f6329c8305341f24989523a0609a283c4340059a
+
+v0.16 : 48 candidats, 3 PASS Research, tous excess_reversion, 0 PASS stabilite.
+PF annuels :
+- b02 : 0.62 / 2.11 / 2.72 / 0.94 / 1.02 / 0.70
+- m04 : 0.61 / 1.72 / 2.72 / 1.14 / 0.92 / 0.64
+- m01 : 0.83 / 1.71 / 1.81 / 1.01 / 0.99 / 0.67
+
+v0.17 teste seulement excess_reversion avec gardes causales larges :
+1. pente EMA200 directionnelle
+2. bande ATR relative
+3. grande session + pente
+4. combinaison pente + ATR + session
+
+Research 2019-2024, stabilite annuelle 2019..2024.
+Holdout 2025-2026 NON OUVERT.
+Apres envoi resultat v0.17 : STOP. AUCUNE v0.18 automatique.
