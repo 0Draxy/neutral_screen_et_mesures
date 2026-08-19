@@ -1,0 +1,101 @@
+from pathlib import Path
+import importlib.util, subprocess, shutil, json, os, sys, time, hashlib, zipfile, traceback, re
+
+# ============================================================================
+# MT5 AutoLab v0.17 LOCAL
+# New structural strategy families + production AutoLoop v0.17 -> v0.17 only.
+# Standalone package: infrastructure engine is embedded locally.
+# ============================================================================
+
+B = Path(r"C:\dev_EA_MT5")
+PKG = Path(__file__).resolve().parent
+ENGINE = PKG / "autolab_engine_v017.py"
+
+if not ENGINE.exists():
+    raise RuntimeError("Moteur embarque v0.17 absent: " + str(ENGINE))
+
+spec = importlib.util.spec_from_file_location("autolab_engine_v017", ENGINE)
+b = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(b)
+
+b.PKG = PKG
+b.A = B / "autolab" / "v0.17"
+b.E = B / "experiments" / "v0.17"
+b.REP = B / "reports"
+b.LOG = B / "logs"
+b.CFG = B / "config"
+b.CAND = b.A / "autolab_candidate.mq5"
+b.FROZEN = b.A / "frozen_candidate.mq5"
+b.CONF = b.CFG / "autolab_v017_local_config.json"
+b.SUMMARY = b.REP / "AUTOLAB_SUMMARY_V017_LOCAL.txt"
+b.FINAL_MD = b.REP / "AUTOLAB_FINAL_V017_LOCAL.md"
+b.CANDIDATES_CSV = b.REP / "AUTOLAB_CANDIDATES_V017_LOCAL.csv"
+b.MASTER = b.LOG / "AUTOLAB_V017_LOCAL.log"
+b.ERR = b.LOG / "AUTOLAB_V017_LOCAL_ERROR.txt"
+b.STATUS = b.LOG / "AUTOLAB_STATUS_V017_LOCAL.txt"
+b.STATE = b.A / "campaign_state.json"
+b.HANDOFF_ZIP = b.REP / "AUTOLAB_A_ENVOYER_CHATGPT_V017_LOCAL.zip"
+b.HANDOFF_INDEX = b.REP / "AUTOLAB_A_ENVOYER_CHATGPT_V017_LOCAL.txt"
+b.PARSE_DIAG = b.REP / "AUTOLAB_PARSE_DIAGNOSTIC_V017_LOCAL.txt"
+b.LOOP_ID = B / "AUTOLOOP_V017_RESULT_ID.txt"
+b.AUTOLOOP_UPLOAD = PKG / "AUTOLOOP_UPLOAD_ROBUST.ps1"
+b.AUTOLOOP_CONTROLLER = None
+b.AUTOLOOP_UPLOAD_MARKER = b.A / "AUTOLOOP_V017_UPLOAD_DONE.txt"
+for d in (b.REA, b.RR, b.A, b.E, b.REP, b.LOG, b.CFG):
+    d.mkdir(parents=True, exist_ok=True)
+
+b.FAMILIES = [
+    {"id": "reversion_slope_guard", "label": "Excess reversion + garde pente"},
+    {"id": "reversion_vol_band", "label": "Excess reversion + bande volatilite"},
+    {"id": "reversion_session_guard", "label": "Excess reversion + session large + pente"},
+    {"id": "reversion_combo_guard", "label": "Excess reversion + pente + volatilite + session"},
+]
+b.FAMILY_ID = {f["id"]: i + 1 for i, f in enumerate(b.FAMILIES)}
+
+def default_state():
+    return {
+        "version": "0.17", "status": "NEW", "started_at": "", "updated_at": "",
+        "phase": "", "family": "", "variant": 0, "completed_discovery": 0,
+        "selected": "", "frozen_hash": "",
+    }
+b.default_state = default_state
+
+def show_progress(phase, current, total, detail=""):
+    current = max(0, int(current))
+    total = max(1, int(total))
+    pct = 100.0 * current / total
+    suffix = (" | " + str(detail)) if detail else ""
+    print(f"[{phase}] TEST {current}/{total} ({pct:5.1f}%){suffix}", flush=True)
+    b.set_console_title(f"AutoLab v0.17 - {phase} - TEST {current}/{total}")
+b.show_progress = show_progress
+
+def write_runtime_status(c, message=""):
+    s = b.load_state()
+    lines = [
+        "============================================================",
+        " MT5 AUTOLAB V0.17 LOCAL - ETAT COURANT",
+        "============================================================",
+        f"Date                  : {b.stamp()}",
+        f"Statut                : {s.get('status','')}",
+        f"Phase                 : {s.get('phase','')}",
+        f"Famille               : {s.get('family','')}",
+        f"Variante              : {s.get('variant',0)}",
+        f"Discovery terminees   : {s.get('completed_discovery',0)} / {b.discovery_total(c)}",
+        f"Candidat selectionne  : {s.get('selected','') or 'AUCUN'}",
+        f"SHA256 gele           : {s.get('frozen_hash','') or 'N/A'}",
+        "Codex / IA externe    : AUCUN",
+        f"Progression           : {s.get('progress_text','')}",
+        f"Message               : {message}",
+        "",
+        "STOP : STOP_AUTOLAB_V017_LOCAL.bat",
+        "Reprise : START_AUTOLAB_V017_LOCAL_INSTALL_AND_RUN.bat",
+        f"ZIP resultat : {b.HANDOFF_ZIP}",
+        "AutoLoop : resultat v0.17 -> ChatGPT -> STOP; aucune v0.18",
+    ]
+    b.STATUS.write_text("\n".join(lines) + "\n", encoding="utf-8")
+b.write_runtime_status = write_runtime_status
+
+def base_gene(family, variant, c):
+    g = {
+        "family": family, "risk": float(c.get("risk_percent", 0.5)),
+        "atr_period": 14, "rsi_period": 14, "fast_ema": 30, "slow_ema": 200,
