@@ -1,0 +1,3 @@
+            try: b.autoloop_finish(c,"ERREUR")
+            except Exception: pass
+        sys.exit(1)
