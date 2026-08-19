@@ -1,0 +1,9 @@
+{
+  "parent_version": "0.16",
+  "parent_loop_id": "690f1a803602eef86ed2743df3d9e17c",
+  "parent_handoff_sha256": "8e5add42b1772260b4824d69f6329c8305341f24989523a0609a283c4340059a",
+  "parent_status": "NO_GO_STABILITY",
+  "v016_research_pass": 3,
+  "v016_stability_pass": 0,
+  "v017_next": "STOP"
+}
