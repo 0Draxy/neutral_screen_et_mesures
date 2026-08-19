@@ -1,0 +1,77 @@
+        b.log("AUTOLOOP: upload final v0.17; attente reelle bouton Envoyer actif.")
+        try:
+            p=subprocess.run(["powershell.exe","-NoProfile","-ExecutionPolicy","Bypass","-File",str(b.AUTOLOOP_UPLOAD),
+                              "-FilePath",str(b.HANDOFF_ZIP),"-Message",msg],timeout=360)
+        except subprocess.TimeoutExpired:
+            b.log("AUTOLOOP: timeout uploader v0.17; ZIP conserve."); return
+        except Exception as exc:
+            b.log("AUTOLOOP: erreur uploader: "+str(exc)); return
+        if p.returncode!=0:
+            b.log("AUTOLOOP: upload v0.17 non confirme code="+str(p.returncode)+". ZIP conserve."); return
+        b.AUTOLOOP_UPLOAD_MARKER.write_text(
+            f"result_id={result_id}\nhandoff_sha256={handoff_hash}\nuploaded_at={b.stamp()}\nnext=STOP\n",
+            encoding="utf-8")
+        b.log("AUTOLOOP: resultat v0.17 envoye. STOP DEFINITIF DE LA BOUCLE.")
+    else:
+        b.log("AUTOLOOP: resultat v0.17 deja marque envoye. STOP.")
+    b.set_console_title("AutoLab v0.17 - STOP AUTOLOOP")
+    return
+b.autoloop_finish=autoloop_finish
+
+def main():
+    c=b.load_cfg(); b.ensure_loop_id()
+    terminal={"PASS_RESEARCH_2019_2024","NO_GO_DISCOVERY","NO_GO_STABILITY"}
+    s=b.load_state()
+    if s.get("status") in terminal and b.SUMMARY.exists() and b.FINAL_MD.exists():
+        b.log("Campagne v0.17 deja terminee: "+s["status"])
+        b.prepare_handoff("DEJA_TERMINE_"+s["status"]); b.autoloop_finish(c,"DEJA_TERMINE"); return
+    if not b.MASTER.exists(): b.MASTER.write_text("",encoding="utf-8")
+    for p in (b.ERR,b.STOP):
+        try: p.unlink()
+        except FileNotFoundError: pass
+    b.set_state(status="RUNNING",phase="INITIALISATION"); b.write_runtime_status(c,"Initialisation v0.17")
+    b.log("MT5 AUTOLAB v0.17 LOCAL - EXCESS REVERSION REGIME GUARDS - ZERO CODEX")
+    b.log("HOLDOUT 2025-2026 FERME EN v0.17.")
+    if not b.TERM.exists() or not b.LIVE_METAEDITOR.exists(): raise RuntimeError("MT5/MetaEditor absent")
+    b.sync_standard_library(); b.preflight_local(c)
+
+    marker=b.A/"CLEANUP_PREVIOUS_VERSIONS_DONE.txt"
+    if not marker.exists():
+        b.cleanup_previous_autolab_versions(); marker.write_text("OK apres preflight v0.17\n",encoding="utf-8")
+
+    candidates=b.run_discovery(c); shortlist=b.shortlist_candidates(c,candidates); b.write_candidates_csv(candidates,[])
+    if not shortlist:
+        status="NO_GO_DISCOVERY"; b.set_state(status=status,phase="TERMINE"); b.write_final(c,status,candidates,shortlist,[])
+        b.write_summary(c,status,candidates); b.write_runtime_status(c,"Aucun garde causal large ne rend la reversion assez forte")
+        b.prepare_handoff(status); b.autoloop_finish(c,status); return
+
+    stability=b.run_stability(c,shortlist); b.write_candidates_csv(candidates,stability); selected=b.select_stable(stability)
+    if selected is None:
+        status="NO_GO_STABILITY"; b.set_state(status=status,phase="TERMINE"); b.write_final(c,status,candidates,shortlist,stability)
+        b.write_summary(c,status,candidates); b.write_runtime_status(c,"Aucun candidat reversion stable 2019-2024; holdout non ouvert")
+        b.prepare_handoff(status); b.autoloop_finish(c,status); return
+
+    info=b.freeze_selected(selected); status="PASS_RESEARCH_2019_2024"
+    b.set_state(status=status,phase="TERMINE"); b.write_final(c,status,candidates,shortlist,stability,info)
+    b.write_summary(c,status,candidates,info); b.write_runtime_status(c,"Survivant reversion gele; holdout 2025-2026 conserve ferme pour decision manuelle")
+    b.prepare_handoff(status); b.autoloop_finish(c,status)
+b.main=main
+
+if __name__=="__main__":
+    if "--bundle-only" in sys.argv:
+        b.ensure_loop_id(); b.prepare_handoff("PAQUET_MANUEL"); sys.exit(0)
+    try:
+        b.main()
+    except KeyboardInterrupt:
+        try:
+            c=b.load_cfg(); b.set_state(status="ARRET_DEMANDE",phase="ARRET"); b.write_summary(c,"ARRET_DEMANDE")
+            b.write_runtime_status(c,"Arret demande; relancer START pour reprendre.")
+        except Exception: c=None
+        b.prepare_handoff("ARRET_DEMANDE"); sys.exit(2)
+    except Exception as e:
+        b.ERR.write_text("".join(traceback.format_exception(e)),encoding="utf-8")
+        try:
+            c=b.load_cfg(); b.set_state(status="ERREUR",phase="ERREUR"); b.write_summary(c,"ERREUR"); b.write_runtime_status(c,str(e))
+        except Exception: c=None
+        b.prepare_handoff("ERREUR")
+        if c is not None:
