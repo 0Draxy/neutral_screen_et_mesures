@@ -1,0 +1,9 @@
+STOP V0.18
+
+Cause: v0.17.1 techniquement invalide avant campagne.
+Preflight MT5 reel: EURUSD H1, 504 barres, 117386 ticks, 1 symbole, depot initial 1000 EUR.
+Echec: parser local n'a pas reconnu le champ 'Qualite de l'Historique: 100%' (history_quality_pct).
+Aucune campagne 48 candidats executee.
+Aucun diagnostic de regime v0.18 publie.
+Holdout 2025-2026 reste ferme.
+Ne pas publier v0.19.
