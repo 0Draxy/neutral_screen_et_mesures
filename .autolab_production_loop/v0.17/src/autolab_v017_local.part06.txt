@@ -1,0 +1,73 @@
+        f"ResultId={result_id}\nNext=STOP - AUCUNE v0.18 AUTOMATIQUE\n"
+        "Holdout2025_2026=NON OUVERT EN v0.17\n\n"+
+        "\n".join(" - "+a for _,a in unique)+"\n",encoding="utf-8")
+    unique.insert(0,(b.HANDOFF_INDEX,"LISEZ_MOI_A_ENVOYER_CHATGPT.txt"))
+    tmp=b.HANDOFF_ZIP.with_suffix(".tmp")
+    try: tmp.unlink()
+    except FileNotFoundError: pass
+    with zipfile.ZipFile(tmp,"w",zipfile.ZIP_DEFLATED,compresslevel=6) as z:
+        for p,a in unique:
+            z.write(p,a)
+    tmp.replace(b.HANDOFF_ZIP)
+    b.log("PAQUET CHATGPT PRET: "+str(b.HANDOFF_ZIP))
+    return b.HANDOFF_ZIP
+b.prepare_handoff=prepare_handoff
+
+def write_final(c,status,candidates,shortlist,stability_results,selected=None,val=None,hold=None):
+    lines=["# MT5 AutoLab v0.17 LOCAL — rapport final","",f"Statut final : **{status}**","",
+           f"Research PASS : {sum(1 for x in candidates if b.discovery_pass(c,x['metrics']))}/{len(candidates)}",
+           f"Shortlist stabilité : {len(shortlist)}","",
+           "Familles : excess reversion + slope / volatility / session / combo",""]
+    if stability_results:
+        lines+=["## Stabilité annuelle","","| Candidat | PF19 | PF20 | PF21 | PF22 | PF23 | PF24 | Gate |",
+                "|---|---:|---:|---:|---:|---:|---:|:---:|"]
+        for r in stability_results:
+            f=r["folds"]
+            lines.append(f"| {r['candidate']['candidate']} | {f['2019']['profit_factor']:.2f} | {f['2020']['profit_factor']:.2f} | {f['2021']['profit_factor']:.2f} | {f['2022']['profit_factor']:.2f} | {f['2023']['profit_factor']:.2f} | {f['2024']['profit_factor']:.2f} | {'PASS' if r['pass'] else 'FAIL'} |")
+        lines.append("")
+    if selected:
+        lines+=["## Candidat gelé",f"- {selected['candidate']}",f"- SHA256 `{selected['sha256']}`",""]
+    conclusions={
+        "NO_GO_DISCOVERY":"Aucun filtre causal large ne rend la réversion assez forte sur 2019-2024.",
+        "NO_GO_STABILITY":"La réversion reste dépendante du régime malgré les gardes causales.",
+        "PASS_RESEARCH_2019_2024":"Un candidat passe screening + stabilité 2019-2024. Holdout conservé fermé pour décision manuelle après v0.17."
+    }
+    lines+=["## Conclusion",conclusions.get(status,"Campagne incomplète."),"",
+            "Holdout 2025–2026 : **NON OUVERT en v0.17**.",
+            "AutoLoop : **STOP après envoi du résultat v0.17. Aucune v0.18 automatique.**"]
+    b.FINAL_MD.write_text("\n".join(lines)+"\n",encoding="utf-8")
+b.write_final=write_final
+
+def write_summary(c,status,candidates=None,selected=None,val_state="NON_EXECUTEE",hold_state="NON_EXECUTE"):
+    candidates=candidates or []
+    lines=["============================================================"," MT5 AUTOLAB - SUMMARY V0.17 LOCAL","============================================================",
+           f"Date                  : {b.stamp()}",f"Statut                : {status}",
+           "Research              : 2019-2024",
+           "Stabilite             : 2019 / 2020 / 2021 / 2022 / 2023 / 2024",
+           "Holdout resultat      : NON OUVERT",
+           f"Candidat gele         : {(selected or {}).get('candidate','AUCUN')}",
+           f"SHA256                : {(selected or {}).get('sha256','N/A')}",
+           f"Candidats evalues     : {len(candidates)}",
+           "Familles              : reversion_slope / reversion_vol / reversion_session / reversion_combo",
+           "AutoLoop              : RESULTAT v0.17 -> ChatGPT -> STOP",
+           "Parser trades         : Nb trades = positions; Operations = deals",
+           f"ZIP resultat          : {b.HANDOFF_ZIP}"]
+    b.SUMMARY.write_text("\n".join(lines)+"\n",encoding="utf-8")
+b.write_summary=write_summary
+
+def autoloop_finish(c,reason=""):
+    if not bool(c.get("autoloop_enabled",True)):
+        b.log("AUTOLOOP desactive."); return
+    if not b.HANDOFF_ZIP.exists():
+        b.log("AUTOLOOP impossible: ZIP resultat absent."); return
+    result_id=b.ensure_loop_id()
+    handoff_hash=b.sha256(b.HANDOFF_ZIP)
+    b.log("===== AUTOLOOP V0.17 RESULTAT -> CHATGPT -> STOP =====")
+    b.log("ResultId="+result_id)
+    b.log("HandoffSHA256="+handoff_hash)
+    if not b.AUTOLOOP_UPLOAD.exists():
+        b.log("Uploader robuste absent."); return
+    if not b.AUTOLOOP_UPLOAD_MARKER.exists():
+        msg=("AUTOLAB PRODUCTION LOOP : resultat v0.17 automatique. "
+             "Analyse le ZIP v0.17. La boucle demandee est terminee : STOP. "
+             "Ne publie pas v0.18.")
