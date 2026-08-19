@@ -1,0 +1,31 @@
+{
+  "version": "0.17",
+  "parent_version": "0.16",
+  "parent_loop_id": "690f1a803602eef86ed2743df3d9e17c",
+  "parent_handoff_sha256": "8e5add42b1772260b4824d69f6329c8305341f24989523a0609a283c4340059a",
+  "python_syntax": "OK",
+  "families": [
+    "reversion_slope_guard",
+    "reversion_vol_band",
+    "reversion_session_guard",
+    "reversion_combo_guard"
+  ],
+  "max_candidates": 48,
+  "research": "2019-2024",
+  "stability": [
+    2019,
+    2020,
+    2021,
+    2022,
+    2023,
+    2024
+  ],
+  "holdout_2025_2026_opened": false,
+  "autoloop_after_result": "STOP",
+  "v018_auto_publish": false,
+  "upload": "real active Send button; 3 stable samples; 180s+120s timeout",
+  "engine_delivery": "generated locally from validated v0.16 engine",
+  "parent_engine_sha256": "83af75cb9af647b1451015ea2e6f8ca4b5dcb3fb45d42a487e0fdc5d6b95a7eb",
+  "main_source_delivery": "8 UTF-8 verified chunks, assembled locally before syntax check",
+  "main_source_sha256": "3443f01ae4e7e4979eaab0becb779cc8439afa80f0bdc7ed9cb873dbfb877e6b"
+}
