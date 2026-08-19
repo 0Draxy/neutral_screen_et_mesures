@@ -1,0 +1,142 @@
+const int MaxHoldBars = {int(g['max_hold'])};
+const double MaxSpreadATR = {float(g['max_spread_atr']):.6f};
+
+int hFastEMA=INVALID_HANDLE;
+int hSlowEMA=INVALID_HANDLE;
+int hRSI=INVALID_HANDLE;
+int hATR=INVALID_HANDLE;
+datetime lastBarTime=0;
+
+bool IsNewBar()
+{{
+   datetime t=iTime(_Symbol,PERIOD_H1,0);
+   if(t<=0 || t==lastBarTime) return false;
+   lastBarTime=t;
+   return true;
+}}
+
+bool HasPosition()
+{{
+   return PositionSelect(_Symbol);
+}}
+
+void ManagePosition()
+{{
+   if(!PositionSelect(_Symbol)) return;
+   datetime pt=(datetime)PositionGetInteger(POSITION_TIME);
+   int shift=iBarShift(_Symbol,PERIOD_H1,pt,false);
+   if(shift>=MaxHoldBars && MaxHoldBars>0)
+      trade.PositionClose(_Symbol);
+}}
+
+double RiskBasedVolume(ENUM_ORDER_TYPE type,double entry,double stop)
+{{
+   double equity=AccountInfoDouble(ACCOUNT_EQUITY);
+   double riskMoney=equity*(RiskPercent/100.0);
+   if(riskMoney<=0.0) return 0.0;
+   double oneLotProfit=0.0;
+   if(!OrderCalcProfit(type,_Symbol,1.0,entry,stop,oneLotProfit)) return 0.0;
+   double lossPerLot=MathAbs(oneLotProfit);
+   if(lossPerLot<=0.0) return 0.0;
+   double raw=riskMoney/lossPerLot;
+   double vmin=SymbolInfoDouble(_Symbol,SYMBOL_VOLUME_MIN);
+   double vmax=SymbolInfoDouble(_Symbol,SYMBOL_VOLUME_MAX);
+   double step=SymbolInfoDouble(_Symbol,SYMBOL_VOLUME_STEP);
+   if(vmin<=0.0 || vmax<=0.0 || step<=0.0 || raw<vmin) return 0.0;
+   double vol=MathFloor(raw/step+1e-9)*step;
+   vol=MathMin(vol,vmax);
+   int vd=2;
+   if(step<0.01) vd=3;
+   if(step<0.001) vd=4;
+   return NormalizeDouble(vol,vd);
+}}
+
+bool InSession(datetime t)
+{{
+   if(SessionStartHour<0 || SessionEndHour<0) return true;
+   MqlDateTime bt;
+   TimeToStruct(t,bt);
+   if(SessionStartHour<=SessionEndHour)
+      return (bt.hour>=SessionStartHour && bt.hour<=SessionEndHour);
+   return (bt.hour>=SessionStartHour || bt.hour<=SessionEndHour);
+}}
+
+bool Signal(int &direction,double &atrValue)
+{{
+   direction=0;
+   int need=MathMax(MathMax(Lookback+16,AuxLookback+16),SlowEMAPeriod+16);
+   need=MathMax(need,240);
+
+   MqlRates rates[];
+   double fast[],slow[],rsi[],atr[];
+   ArraySetAsSeries(rates,true);
+   ArraySetAsSeries(fast,true);
+   ArraySetAsSeries(slow,true);
+   ArraySetAsSeries(rsi,true);
+   ArraySetAsSeries(atr,true);
+
+   if(CopyRates(_Symbol,PERIOD_H1,0,need,rates)<need) return false;
+   if(CopyBuffer(hFastEMA,0,0,need,fast)<need) return false;
+   if(CopyBuffer(hSlowEMA,0,0,need,slow)<need) return false;
+   if(CopyBuffer(hRSI,0,0,need,rsi)<need) return false;
+   if(CopyBuffer(hATR,0,0,need,atr)<need) return false;
+
+   atrValue=atr[1];
+   if(atrValue<=0.0) return false;
+   if(!InSession(rates[1].time)) return false;
+
+   int slopeBars=24;
+   if(1+slopeBars>=need) return false;
+   double signedSlope=(slow[1]-slow[1+slopeBars])/atrValue;
+
+   int volBars=MathMax(24,AuxLookback);
+   if(volBars+2>=need) return false;
+   double atrSum=0.0;
+   int atrCount=0;
+   for(int i=2;i<2+volBars;i++)
+   {{
+      if(atr[i]>0.0) {{ atrSum+=atr[i]; atrCount++; }}
+   }}
+   if(atrCount<=0) return false;
+   double atrMean=atrSum/(double)atrCount;
+   if(atrMean<=0.0) return false;
+   double volRatio=atrValue/atrMean;
+   bool volOk=(volRatio>=VolMin && volRatio<=VolMax);
+
+   double body1=MathAbs(rates[1].close-rates[1].open);
+   bool bodyUp=(rates[1].close>rates[1].open);
+   bool bodyDown=(rates[1].close<rates[1].open);
+
+   bool flatEnough=(MathAbs(fast[1]-slow[1])<=atrValue*FlatATR);
+   bool bodyOk=(body1>=atrValue*FilterB);
+   bool longPrior=(rsi[2]<=Level1 && rates[2].close<fast[2]-atr[2]*Level2);
+   bool shortPrior=(rsi[2]>=100.0-Level1 && rates[2].close>fast[2]+atr[2]*Level2);
+   bool longConfirm=(bodyUp && rates[1].close>rates[2].close && rsi[1]>=rsi[2]+FilterA);
+   bool shortConfirm=(bodyDown && rates[1].close<rates[2].close && rsi[1]<=rsi[2]-FilterA);
+   bool longSlopeSafe=(signedSlope>=-SlopeMax);
+   bool shortSlopeSafe=(signedSlope<=SlopeMax);
+   bool longRegime=true;
+   bool shortRegime=true;
+
+   if(FAMILY_ID==1)
+   {{
+      longRegime=longSlopeSafe;
+      shortRegime=shortSlopeSafe;
+   }}
+   else if(FAMILY_ID==2)
+   {{
+      longRegime=volOk;
+      shortRegime=volOk;
+   }}
+   else if(FAMILY_ID==3)
+   {{
+      longRegime=longSlopeSafe;
+      shortRegime=shortSlopeSafe;
+   }}
+   else if(FAMILY_ID==4)
+   {{
+      longRegime=(longSlopeSafe && volOk);
+      shortRegime=(shortSlopeSafe && volOk);
+   }}
+
+   if(flatEnough && bodyOk && longPrior && longConfirm && longRegime) direction=1;
