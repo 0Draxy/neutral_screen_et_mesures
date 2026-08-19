@@ -1,0 +1,7 @@
+{
+  "parent_version": "0.14",
+  "parent_loop_id": "bea6d90856fcd14091726e10fcb75e89",
+  "parent_handoff_sha256": "671d878a3fbfe8ed66c6cb9f79c6641b695837cb31f8fac38505c9b28524e505",
+  "expected_current_version": "0.15",
+  "next_after_v015": "STOP"
+}
