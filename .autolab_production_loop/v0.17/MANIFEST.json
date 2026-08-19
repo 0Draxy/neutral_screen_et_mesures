@@ -1,0 +1,28 @@
+{
+  "version": "0.17",
+  "parent_version": "0.16",
+  "parent_loop_id": "690f1a803602eef86ed2743df3d9e17c",
+  "parent_handoff_sha256": "8e5add42b1772260b4824d69f6329c8305341f24989523a0609a283c4340059a",
+  "folder": "MT5_AutoLab_v0.17_LOCAL",
+  "start_bat": "START_AUTOLAB_V017_LOCAL_INSTALL_AND_RUN.bat",
+  "next_after_result": "STOP",
+  "files": {
+    "ANALYSE_V016_ET_PLAN_V017.txt": "387477312c29e685618dcbf4c58c53717624efd5b4e9a120e51c70b53219a930",
+    "AUTOLOOP_UPLOAD_ROBUST.ps1": "5b647a2b9eed8b916c37d1280b022d712889fb1d42fa30a9471bddccaf1beaae",
+    "BUILD_VALIDATION.json": "6a051af85e7ec83e1431e2e2c06bd2a436675345962300964426d8ce8ee07323",
+    "INSTALL_AND_RUN_V017.ps1": "919f0752ea04b35648efab8a4a2441295f8a9627a384be27a8da8c6f21a959c7",
+    "PARENT_LOOP_V016.json": "85f54f13e0db504eae0a189dd0303ba9e18bc78591b8183d9a7e942509ae0761",
+    "PREPARER_FICHIERS_POUR_CHATGPT_V017_LOCAL.bat": "f1f9d33e7557b3d8e2bbea8827d283ea6ab772eb5b02481a98061cbd5a199bf9",
+    "README.txt": "b3ca9ae21cf676f0588ec72ef01272301a68089ddfba503cfbd3982cbbc5d0c8",
+    "START_AUTOLAB_V017_LOCAL_INSTALL_AND_RUN.bat": "329fb2acbfda3d445cf9eb20a06483f1bd21cdf522106ea561b944d86a597579",
+    "autolab_v017_local_config.json": "cb753b95de751fd52116d296cb5934e9b60360c9b031dc0a8f07d5975e2dcecb",
+    "src/autolab_v017_local.part01.txt": "74cc54ac3a7185da8eab91bfdbdf42b6355ac9d4d7be4603a01a3a17ed9b7ec6",
+    "src/autolab_v017_local.part02.txt": "30cb740f75375da6ef56c797bcc3c7d9ebe25282a10b63339f44b6745c559cd7",
+    "src/autolab_v017_local.part03.txt": "92034d79dbf348798f36d19aaff319ad5ea8e155f325cf5c0fc07c7ecc6fa1c5",
+    "src/autolab_v017_local.part04.txt": "852817a84d3f55ae0ad4d1572ef0e7a623181c3a0b84d4748101b4d734f7a9c4",
+    "src/autolab_v017_local.part05.txt": "d40c6b9e68d0e956b0e028d3afc2bc74ea260f866506d1b8453436fc3b41365c",
+    "src/autolab_v017_local.part06.txt": "025e7c373e70f0d0fdabbca997d957c3bb4b7d36fbd8404209d3462fb184d006",
+    "src/autolab_v017_local.part07.txt": "e30898314054ddd87052b603507d76fd01567e59590148567fbe3cf5ce53131a",
+    "src/autolab_v017_local.part08.txt": "4488b6fb47c0cb159010841e2307d69a3f00bbdbb0971d1fe4b1f04d59d38228"
+  }
+}
