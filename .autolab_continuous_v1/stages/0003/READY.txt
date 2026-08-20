@@ -1,0 +1,4 @@
+READY
+chain_id=AUTOLAB_CONTINUOUS_V1
+stage=0003
+purpose=new_structural_research
