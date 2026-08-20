@@ -1,0 +1,91 @@
+{
+  "chain_id": "AUTOLAB_CONTINUOUS_V1",
+  "stage": "0006",
+  "name": "NEW_CROSS_INSTRUMENT_EVIDENCE_POOL",
+  "created_before_new_price_extraction": true,
+  "scientific_status": {
+    "existing_23_2019_2026": "RESEARCH_EXPOSED",
+    "historical_holdout_remaining": false,
+    "new_pool": "instrument-level new evidence for this AutoLab chain",
+    "live_trading": false
+  },
+  "catalog_snapshot_sha256": "974a18cf45dc558813058f229ca9fa3ea99796f81cad79969f3e1247cb8d10cb",
+  "selection_sha256": "f7d9a150eea46db061da896a654cc05d2f69a4a2ea5f5c65fc552bfcef61b232",
+  "selection_rule": {
+    "salt": "AUTOLAB_CONTINUOUS_V1_STAGE0006_POOL_20260820",
+    "trade_mode_required": 4,
+    "excluded": [
+      "23 existing exposed symbols",
+      "metadata containing OPTION",
+      "FUTURE",
+      "TEST",
+      "INTERNAL"
+    ],
+    "classification": "broker path metadata only",
+    "ranking": "SHA256(salt|category|symbol) ascending",
+    "performance_data_used": false
+  },
+  "discovery_targets": {
+    "SHARE_US": 8,
+    "SHARE_EU": 4,
+    "ETF": 4,
+    "CRYPTO": 3,
+    "COMMODITY": 4,
+    "INDEX_NEW": 3,
+    "FX_NEW": 3,
+    "BOND": 1
+  },
+  "discovery_reserves": {
+    "SHARE_US": 8,
+    "SHARE_EU": 4,
+    "ETF": 4,
+    "CRYPTO": 3,
+    "COMMODITY": 4,
+    "INDEX_NEW": 3,
+    "FX_NEW": 3,
+    "BOND": 0
+  },
+  "validation_targets": {
+    "SHARE_US": 5,
+    "SHARE_EU": 2,
+    "ETF": 2,
+    "CRYPTO": 2,
+    "COMMODITY": 2,
+    "INDEX_NEW": 2,
+    "FX_NEW": 2,
+    "BOND": 1
+  },
+  "validation_reserves": {
+    "SHARE_US": 5,
+    "SHARE_EU": 2,
+    "ETF": 2,
+    "CRYPTO": 2,
+    "COMMODITY": 2,
+    "INDEX_NEW": 2,
+    "FX_NEW": 2,
+    "BOND": 0
+  },
+  "discovery_acceptance": {
+    "from": "2018.01.01",
+    "to": "2026.08.06",
+    "timeframe": "H1",
+    "model": 1,
+    "minimum_rows": 10000,
+    "minimum_total_success": 24,
+    "minimum_categories_with_success": 6,
+    "attempts_per_symbol": 2,
+    "replacement": "same-category frozen reserve order; availability only"
+  },
+  "validation_lock": {
+    "extract_stage0006": false,
+    "analyze_stage0006": false,
+    "unlock_condition": "only after a discovery rule/candidate is frozen",
+    "performance_based_replacement": false
+  },
+  "next": "STAGE 0007 research only on discovery manifest; validation remains locked",
+  "prohibited": {
+    "validation_price_read": true,
+    "live": true,
+    "new_historical_holdout_claim": true
+  }
+}
