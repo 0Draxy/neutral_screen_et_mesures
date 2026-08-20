@@ -1,0 +1,83 @@
+{
+  "chain_id": "AUTOLAB_CONTINUOUS_V1",
+  "stage": "0007",
+  "name": "DISCOVERY_MULTI_FAMILY_TOURNAMENT",
+  "created_before_discovery_analysis": true,
+  "scientific_status": {
+    "discovery_pool": "29 new instruments extracted in stage0006; discovery only",
+    "validation_pool": "LOCKED / NOT EXTRACTED / NOT ANALYZED",
+    "existing_2019_2026": "research exposed",
+    "historical_holdout_remaining": false,
+    "live_trading": false
+  },
+  "source_integrity": {
+    "discovery_manifest_sha256": "f12a6b89ac3e06276c10cf1821f0a1868aed9b5cca1c2c9b412ef991875a370c",
+    "validation_lock_sha256": "c208bea3a979b5e5f860b40317dd434dc3e6778e864db6934a375ffaed64722e",
+    "validation_price_path_read_prohibited": true
+  },
+  "families": {
+    "ts_momentum": {"lookback_bars": [24,72,120], "hold_bars": [8,24,72]},
+    "ts_reversal": {"lookback_bars": [24,72,120], "hold_bars": [8,24,72]},
+    "range_breakout": {"lookback_bars": [24,72,120], "hold_bars": [8,24,72]},
+    "range_reversal": {"lookback_bars": [24,72,120], "hold_bars": [8,24,72]},
+    "impulse_momentum": {"lookback_bars": [6,12], "threshold_atr": [1.0,1.5], "hold_bars": [4,8,24]},
+    "impulse_reversal": {"lookback_bars": [6,12], "threshold_atr": [1.0,1.5], "hold_bars": [4,8,24]},
+    "compression_breakout": {"compression_ratio": [0.65,0.80], "breakout_lookback": [24,72], "hold_bars": [8,24]}
+  },
+  "expected_hypotheses": 68,
+  "event_rules": {
+    "completed_bars_only": true,
+    "entry": "next available H1 bar open",
+    "exit": "fixed number of instrument H1 bars later",
+    "cooldown": "hold_bars; one active event per instrument/config",
+    "atr": "simple ATR14 at signal",
+    "cost": "observed entry spread converted to price and divided by ATR14",
+    "stress": ["x2 spread cost","x3 spread cost"],
+    "normalization": "ATR14",
+    "no_clock_alignment_required": true
+  },
+  "robustness_gates": {
+    "events_min": 600,
+    "eligible_symbols_min": 18,
+    "eligible_categories_min": 6,
+    "equal_symbol_mean_atr": ">0.04",
+    "equal_symbol_stress2_atr": ">0",
+    "equal_symbol_stress3_atr": ">0",
+    "pooled_trim_top1pct_atr": ">0",
+    "pooled_trim_top5pct_atr": ">0",
+    "positive_symbol_ratio": ">=0.60",
+    "positive_category_ratio": ">=0.625",
+    "positive_full_years_2019_2025": ">=5 of 7 with >=6 eligible",
+    "both_time_halves_positive": "2019-2022 and 2023-2025",
+    "max_positive_symbol_contribution": "<=0.20",
+    "max_positive_category_contribution": "<=0.40",
+    "parameter_neighborhood_good_ratio": ">=0.50"
+  },
+  "eligibility_notes": {
+    "eligible_symbol_min_events": 20,
+    "eligible_category_min_events": 40,
+    "eligible_year_min_events": 50,
+    "2026_partial": "diagnostic only, not year gate"
+  },
+  "neighbor_definition": "same family; exactly one parameter moves one adjacent predefined grid step; good if equal-symbol mean>0, stress2>0, pooled trim1>0",
+  "automatic_freeze": {
+    "if_one_or_more_leads": true,
+    "ranking": [
+      "highest robustness_floor = min(stress3_equal_symbol, trim5_pooled, half1_equal_symbol, half2_equal_symbol)",
+      "highest positive_symbol_ratio",
+      "highest neighbor_good_ratio",
+      "highest equal_symbol_mean_atr",
+      "lexicographic hypothesis_id"
+    ],
+    "output": "FROZEN_DISCOVERY_CANDIDATE_STAGE0007.json",
+    "validation_remains_locked_until_next_stage": true
+  },
+  "next_if_frozen": "STAGE0008 extracts validation pool only and applies exact frozen candidate; no discovery retuning",
+  "next_if_no_lead": "continue discovery with a structurally distinct family; validation stays locked",
+  "prohibited": {
+    "no_validation_price_read": true,
+    "no_validation_extraction": true,
+    "no_live": true,
+    "no_micro_tuning_failed_family_after_result": true
+  }
+}
