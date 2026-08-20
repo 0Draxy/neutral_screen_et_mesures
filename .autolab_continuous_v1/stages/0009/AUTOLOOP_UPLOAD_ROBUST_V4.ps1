@@ -63,6 +63,9 @@ function Find-Composer($p){
  $wr=$root.Current.BoundingRectangle
  $minW=[Math]::Max(360.0,$wr.Width*.28)
  $best=$null;$score=-1e12
+
+ # IMPORTANT: Firefox web content can be exposed by another firefox.exe PID.
+ # Search descendants of the trusted Firefox top-level root and do NOT require p.Id.
  $all=$root.FindAll([System.Windows.Automation.TreeScope]::Descendants,[System.Windows.Automation.Condition]::TrueCondition)
  for($i=0;$i -lt $all.Count;$i++){
   try{
@@ -71,6 +74,7 @@ function Find-Composer($p){
    if($r.Width -lt $minW -or $r.Height -lt 18 -or $r.Height -gt 360){continue}
    if($r.Top -lt ($wr.Top+$wr.Height*.48)){continue}
    if($r.Left -lt ($wr.Left-5) -or $r.Right -gt ($wr.Right+5)){continue}
+
    $ct=$e.Current.ControlType
    $meta=Meta $e
    $focusable=$e.Current.IsKeyboardFocusable
@@ -78,6 +82,7 @@ function Find-Composer($p){
               ($ct -eq [System.Windows.Automation.ControlType]::Document) -or
               ($focusable -and $meta -match '(?i)message|prompt|composer|ask|question|chatgpt')
    if(-not $candidate){continue}
+
    $s=($r.Top-$wr.Top)*4 + $r.Width
    if($meta -match '(?i)message|send a message|envoyer un message|prompt|composer|ask|question'){$s+=1000000}
    if($ct -eq [System.Windows.Automation.ControlType]::Edit){$s+=200000}
@@ -90,6 +95,7 @@ function Find-Composer($p){
 
 function Find-Send($p,$c){
  $root=[System.Windows.Automation.AutomationElement]::FromHandle($p.MainWindowHandle)
+ $cond=New-Object System.Windows.Automation.PropertyCondition([System.Windows.Automation.AutomationElement]::ControlTypeProperty,[System.Windows.Automation.AutomationElement]::ControlTypeProperty)
  $cond=New-Object System.Windows.Automation.PropertyCondition([System.Windows.Automation.AutomationElement]::ControlTypeProperty,[System.Windows.Automation.ControlType]::Button)
  $els=$root.FindAll([System.Windows.Automation.TreeScope]::Descendants,$cond)
  $best=$null;$score=-1e12
@@ -114,6 +120,9 @@ function Focus-Is-Safe($p,$c,[int]$cx,[int]$cy){
    $firefox=@(Firefox-Pids)
    if($firefox -notcontains $fp){return $false}
    $fr=$f.Current.BoundingRectangle
+   # Firefox may focus an inner contenteditable child with a tiny rectangle.
+   # Accept if click point is in focused rect OR focused element is a descendant-ish
+   # Firefox element whose rectangle lies inside the already-proved composer.
    $insideFocus=($cx -ge $fr.Left -and $cx -le $fr.Right -and $cy -ge $fr.Top -and $cy -le $fr.Bottom)
    $insideComposer=($fr.Left -ge ($c.R.Left-20) -and $fr.Right -le ($c.R.Right+20) -and
                     $fr.Top -ge ($c.R.Top-80) -and $fr.Bottom -le ($c.R.Bottom+80))
