@@ -95,7 +95,6 @@ function Find-Composer($p){
 
 function Find-Send($p,$c){
  $root=[System.Windows.Automation.AutomationElement]::FromHandle($p.MainWindowHandle)
- $cond=New-Object System.Windows.Automation.PropertyCondition([System.Windows.Automation.AutomationElement]::ControlTypeProperty,[System.Windows.Automation.AutomationElement]::ControlTypeProperty)
  $cond=New-Object System.Windows.Automation.PropertyCondition([System.Windows.Automation.AutomationElement]::ControlTypeProperty,[System.Windows.Automation.ControlType]::Button)
  $els=$root.FindAll([System.Windows.Automation.TreeScope]::Descendants,$cond)
  $best=$null;$score=-1e12
