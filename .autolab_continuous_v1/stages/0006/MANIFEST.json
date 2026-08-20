@@ -1,0 +1,14 @@
+{
+  "chain_id": "AUTOLAB_CONTINUOUS_V1",
+  "stage": "0006",
+  "folder": "AUTOLAB_STAGE_0006_NEW_EVIDENCE_POOL",
+  "start_bat": "RUN_STAGE_0006.bat",
+  "purpose": "build deterministic new cross-instrument discovery/validation pool; extract discovery only; validation remains locked",
+  "files": {
+    "POOL_SELECTION_STAGE0006.csv": "ea5f937dad3f353c03ca9e9819d13d522ecf564c8b69b0de368e0c3646f4e218",
+    "POOL_PROTOCOL_STAGE0006.json": "df8aa10708823afabb403aef153c3271487406f102a298219efba3e73f79cb06",
+    "autolab_engine_stage0006.py": "89498303b9585541d2fcbe5b1909e8c3fb099fee3beaf5dd9c0f88994304f50e",
+    "RESEARCH_STAGE0006.py": "e5062b24ca52e9a318091acfcb183a8d9158a6999c1f8134ccbedf1aff1276eb",
+    "RUN_STAGE_0006.bat": "be23f58e829fe3fa59ede6c6de88f32eeff8d74193eb4f3a370ade3d3a335765"
+  }
+}
