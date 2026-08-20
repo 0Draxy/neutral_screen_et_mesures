@@ -1,0 +1,4 @@
+READY
+chain_id=AUTOLAB_CONTINUOUS_V1
+stage=0007
+purpose=discovery_multi_family_tournament_validation_locked_cleanup_enabled
