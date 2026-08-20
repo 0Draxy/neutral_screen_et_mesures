@@ -11,37 +11,93 @@
   "families": [
     {
       "name": "daily_tsmom",
-      "lookback_days": [2,5,10,20],
-      "hold_hours": [24,72]
+      "lookback_days": [
+        2,
+        5,
+        10,
+        20
+      ],
+      "hold_hours": [
+        24,
+        72
+      ]
     },
     {
       "name": "daily_tsreversal",
-      "lookback_days": [2,5,10,20],
-      "hold_hours": [24,72]
+      "lookback_days": [
+        2,
+        5,
+        10,
+        20
+      ],
+      "hold_hours": [
+        24,
+        72
+      ]
     },
     {
       "name": "impulse_momentum",
-      "lookback_hours": [3,6,12],
-      "threshold_atr": [0.75,1.25],
-      "hold_hours": [4,8,24]
+      "lookback_hours": [
+        3,
+        6,
+        12
+      ],
+      "threshold_atr": [
+        0.75,
+        1.25
+      ],
+      "hold_hours": [
+        4,
+        8,
+        24
+      ]
     },
     {
       "name": "impulse_reversal",
-      "lookback_hours": [3,6,12],
-      "threshold_atr": [0.75,1.25],
-      "hold_hours": [4,8,24]
+      "lookback_hours": [
+        3,
+        6,
+        12
+      ],
+      "threshold_atr": [
+        0.75,
+        1.25
+      ],
+      "hold_hours": [
+        4,
+        8,
+        24
+      ]
     },
     {
       "name": "range_position_momentum",
-      "lookback_hours": [48,120],
-      "edge_fraction": [0.15,0.25],
-      "hold_hours": [8,24]
+      "lookback_hours": [
+        48,
+        120
+      ],
+      "edge_fraction": [
+        0.15,
+        0.25
+      ],
+      "hold_hours": [
+        8,
+        24
+      ]
     },
     {
       "name": "range_position_reversal",
-      "lookback_hours": [48,120],
-      "edge_fraction": [0.15,0.25],
-      "hold_hours": [8,24]
+      "lookback_hours": [
+        48,
+        120
+      ],
+      "edge_fraction": [
+        0.15,
+        0.25
+      ],
+      "hold_hours": [
+        8,
+        24
+      ]
     }
   ],
   "event_rules": {
@@ -52,7 +108,11 @@
     "cost": "one observed spread at entry converted to price and subtracted",
     "normalization": "ATR14 at signal"
   },
-  "scopes": ["ALL","FX","NON_FX"],
+  "scopes": [
+    "ALL",
+    "FX",
+    "NON_FX"
+  ],
   "gates": {
     "events_min": 300,
     "equal_weight_symbol_mean_atr": ">0.05",
