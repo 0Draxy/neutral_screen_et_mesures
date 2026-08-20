@@ -1,0 +1,12 @@
+{
+  "chain_id": "AUTOLAB_CONTINUOUS_V1",
+  "stage": "0008",
+  "folder": "AUTOLAB_STAGE_0008_UPLOAD_RECOVERY",
+  "start_bat": "RUN_STAGE_0008.bat",
+  "purpose": "recover already-computed STAGE0007 ZIP upload and install UIA-safe uploader v3; no scientific rerun",
+  "files": {
+    "AUTOLOOP_UPLOAD_ROBUST_V3.ps1": "039418f79a17e14a5c1d9ceaf4a403be7b6f22ef291d7d7dfb7dfec797a09d69",
+    "RECOVER_STAGE0007_UPLOAD_V3.ps1": "5f743d25e4aa8320ce4f7282ccb6417c007be243e7e9c4a480146250cf06927a",
+    "RUN_STAGE_0008.bat": "0758753aca290418396f81c0c84964bfcf9d8148610e25227004043bccf32dc7"
+  }
+}
