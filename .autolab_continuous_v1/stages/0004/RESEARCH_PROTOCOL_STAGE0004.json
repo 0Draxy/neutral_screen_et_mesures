@@ -1,0 +1,83 @@
+{
+  "chain_id": "AUTOLAB_CONTINUOUS_V1",
+  "stage": "0004",
+  "name": "CROSS_SECTIONAL_RELATIVE_STRENGTH_RESEARCH",
+  "created_before_run": true,
+  "scientific_status": {
+    "2019_2026": "RESEARCH_EXPOSED",
+    "historical_holdout_remaining": false,
+    "live_trading": false,
+    "closed_or_failed": [
+      "EURUSD excess_reversion closed",
+      "metal compression-break not forward-eligible under frozen DD gate",
+      "stage0003 single-asset structural families: 0 robust leads"
+    ]
+  },
+  "rationale": "Test a structurally different family: simultaneous relative ranking across assets rather than single-asset time-series rules.",
+  "universe_rule": {
+    "coverage_filter": "include only symbols with first timestamp <= 2019-01-15 and last timestamp >= 2026-08-01",
+    "universes": [
+      "FX",
+      "NON_FX_CORE",
+      "ALL_CORE"
+    ],
+    "late_history_symbols_excluded_by_rule": "e.g. UK100 if coverage starts after cutoff"
+  },
+  "hypotheses": {
+    "styles": [
+      "cross_sectional_momentum",
+      "cross_sectional_reversal"
+    ],
+    "lookback_hours": [
+      24,
+      72,
+      120,
+      240
+    ],
+    "hold_hours": [
+      8,
+      24,
+      72
+    ],
+    "tail_fractions": [
+      0.2,
+      0.3
+    ],
+    "per_universe": 48,
+    "total_evaluations_expected": 144
+  },
+  "event_rules": {
+    "signal": "rank percentage return over lookback among universe members at same H1 timestamp",
+    "momentum": "long top tail, short bottom tail",
+    "reversal": "long bottom tail, short top tail",
+    "entry": "next available H1 bar open per selected symbol",
+    "exit": "after hold_hours symbol H1 bars",
+    "no_overlap": "next portfolio signal only after all legs of prior portfolio have exited",
+    "cost": "one observed entry spread per leg; stress x2 and x3",
+    "normalization": "each leg P/L divided by ATR14 at signal; portfolio equal-weight legs",
+    "causality": "completed bars only"
+  },
+  "robustness_gates": {
+    "events_min": 300,
+    "portfolio_mean_atr": ">0.05",
+    "stress2_mean_atr": ">0",
+    "stress3_mean_atr": ">0",
+    "trim_top_1pct_mean_atr": ">0",
+    "trim_top_5pct_mean_atr": ">0",
+    "positive_full_years_2019_2025": ">=5 of 7 with >=6 eligible",
+    "both_time_halves_positive": "2019-2022 and 2023-2025",
+    "long_side_mean_atr": ">0",
+    "short_side_mean_atr": ">0",
+    "max_positive_symbol_contribution": "<=0.30",
+    "parameter_neighborhood_good_ratio": ">=0.50"
+  },
+  "neighbor_definition": "same universe/style; exactly one of lookback/hold/tail moves to adjacent predefined grid value; neighbor good if mean>0, stress2>0, trim1>0",
+  "prohibited": {
+    "no_tuning_old_metal_candidate": true,
+    "no_new_historical_holdout_claim": true,
+    "no_live": true,
+    "no_symbol_selection_by_performance": true
+  },
+  "next_if_robust_lead": "freeze best predeclared cross-sectional rule and perform execution/reproduction validation only",
+  "next_if_no_lead": "continue to another structurally distinct family; do not micro-tune failed grids"
+}
