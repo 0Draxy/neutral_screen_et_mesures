@@ -10,7 +10,7 @@
     "live_trading": false
   },
   "catalog_snapshot_sha256": "974a18cf45dc558813058f229ca9fa3ea99796f81cad79969f3e1247cb8d10cb",
-  "selection_sha256": "f7d9a150eea46db061da896a654cc05d2f69a4a2ea5f5c65fc552bfcef61b232",
+  "selection_sha256": "21d8c85138242cd17a01095d90a3da474f4fb95794d441e6ac09c0e424ede077",
   "selection_rule": {
     "salt": "AUTOLAB_CONTINUOUS_V1_STAGE0006_POOL_20260820",
     "trade_mode_required": 4,
