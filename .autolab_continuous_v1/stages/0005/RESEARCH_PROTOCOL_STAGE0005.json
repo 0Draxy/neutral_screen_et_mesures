@@ -1,0 +1,145 @@
+{
+  "chain_id": "AUTOLAB_CONTINUOUS_V1",
+  "stage": "0005",
+  "name": "PAIR_RELATIVE_VALUE_LOG_RATIO_RESEARCH",
+  "created_before_run": true,
+  "scientific_status": {
+    "2019_2026": "RESEARCH_EXPOSED",
+    "historical_holdout_remaining": false,
+    "live_trading": false,
+    "closed_or_failed": [
+      "EURUSD excess_reversion closed",
+      "metal compression-break exact candidate not forward-eligible under frozen DD gate",
+      "stage0003 single-asset structural families: 0 robust leads",
+      "stage0004 cross-sectional relative-strength families: 0 robust leads"
+    ]
+  },
+  "rationale": "Test a structurally distinct market-neutral-ish relative-value family using predeclared economically related pairs, not performance-selected pairs.",
+  "pairs": [
+    {
+      "pair": "EURUSD__GBPUSD",
+      "a": "EURUSD",
+      "b": "GBPUSD",
+      "class": "FX"
+    },
+    {
+      "pair": "AUDUSD__NZDUSD",
+      "a": "AUDUSD",
+      "b": "NZDUSD",
+      "class": "FX"
+    },
+    {
+      "pair": "EURJPY__GBPJPY",
+      "a": "EURJPY",
+      "b": "GBPJPY",
+      "class": "FX"
+    },
+    {
+      "pair": "EURCHF__GBPCHF",
+      "a": "EURCHF",
+      "b": "GBPCHF",
+      "class": "FX"
+    },
+    {
+      "pair": "AUDJPY__CADJPY",
+      "a": "AUDJPY",
+      "b": "CADJPY",
+      "class": "FX"
+    },
+    {
+      "pair": "US500__NAS100",
+      "a": "US500",
+      "b": "NAS100",
+      "class": "INDEX"
+    },
+    {
+      "pair": "US500__US30",
+      "a": "US500",
+      "b": "US30",
+      "class": "INDEX"
+    },
+    {
+      "pair": "XAUUSD__XAGUSD",
+      "a": "XAUUSD",
+      "b": "XAGUSD",
+      "class": "METAL"
+    }
+  ],
+  "scopes": {
+    "ALL": {
+      "pairs": 8,
+      "lead_eligible": true
+    },
+    "FX": {
+      "pairs": 5,
+      "lead_eligible": true
+    },
+    "NON_FX_DIAGNOSTIC": {
+      "pairs": 3,
+      "lead_eligible": false
+    }
+  },
+  "hypotheses": {
+    "styles": [
+      "pair_mean_reversion",
+      "pair_momentum"
+    ],
+    "lookback_pair_bars": [
+      120,
+      240,
+      480
+    ],
+    "z_entry": [
+      1.0,
+      1.5,
+      2.0
+    ],
+    "hold_pair_bars": [
+      8,
+      24,
+      72
+    ],
+    "per_scope": 54,
+    "total_evaluations_expected": 162
+  },
+  "signal": {
+    "spread": "log(close_A)-log(close_B)",
+    "zscore": "current spread versus mean/std of PREVIOUS lookback synchronized completed pair bars; current bar excluded from reference window",
+    "entry_condition": "abs(z)>=threshold AND previous abs(z)<threshold (one threshold-crossing event)",
+    "mean_reversion": "z>0 => short A / long B; z<0 => long A / short B",
+    "momentum": "opposite of mean_reversion",
+    "entry": "next synchronized pair-bar opens",
+    "exit": "fixed hold_pair_bars later on synchronized pair-bar opens",
+    "overlap": "same pair cannot open a new event until prior fixed-horizon event has exited",
+    "cost": "equal-notional two-leg observed entry spreads; 0.5 weight each leg",
+    "pnl": "equal-notional 0.5/0.5 leg percentage return, converted to basis points",
+    "stress": [
+      "x2 cost",
+      "x3 cost"
+    ],
+    "causality": "completed bars only"
+  },
+  "robustness_gates": {
+    "events_min": 300,
+    "mean_net_bps": ">0.50",
+    "stress2_mean_bps": ">0",
+    "stress3_mean_bps": ">0",
+    "trim_top_1pct_mean_bps": ">0",
+    "trim_top_5pct_mean_bps": ">0",
+    "positive_pair_ratio": "ALL >=0.625; FX >=0.60; diagnostic scope not lead-eligible",
+    "positive_full_years_2019_2025": ">=5 of 7 with >=6 eligible",
+    "both_time_halves_positive": "2019-2022 and 2023-2025",
+    "both_z_sides_positive": "events initiated by z>0 and z<0 each mean >0",
+    "max_positive_pair_contribution": "<=0.35",
+    "parameter_neighborhood_good_ratio": ">=0.50"
+  },
+  "neighbor_definition": "same scope/style; exactly one of lookback/z_entry/hold moves to adjacent predefined grid value; neighbor good if mean>0, stress2>0, trim1>0",
+  "prohibited": {
+    "no_pair_selection_by_backtest_performance": true,
+    "no_tuning_old_families": true,
+    "no_new_historical_holdout_claim": true,
+    "no_live": true
+  },
+  "next_if_robust_lead": "freeze best predeclared pair rule; execution/reproduction validation only on exposed history",
+  "next_if_no_lead": "continue to another structurally distinct family; do not micro-tune failed grid"
+}
