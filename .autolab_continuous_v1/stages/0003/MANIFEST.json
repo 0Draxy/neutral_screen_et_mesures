@@ -1,0 +1,13 @@
+{
+  "chain_id": "AUTOLAB_CONTINUOUS_V1",
+  "stage": "0003",
+  "folder": "AUTOLAB_STAGE_0003_STRUCTURAL",
+  "start_bat": "RUN_STAGE_0003.bat",
+  "purpose": "new structural research after exact metal candidate failed frozen forward DD eligibility",
+  "files": {
+    "RESEARCH_PROTOCOL_STAGE0003.json": "457e61c76387d0abcef75c171834dc90a534efe87aae0074322b6673d748d558",
+    "SOURCE_MANIFEST_V0211.csv": "463795c818acd2150dbfcb9406b7ce965a649cae0d9c3acc360a9984ac3818cf",
+    "RESEARCH_STAGE0003.py": "2e15c1d7b9d9363b9b5df6429524501a2603347e6e122589cd3a7e3496bcce49",
+    "RUN_STAGE_0003.bat": "23b38fa0667af15e484b9f2e20f5fb8cbbb761486654921d4cd952aa0a23491f"
+  }
+}
