@@ -1,0 +1,71 @@
+{
+  "chain_id": "AUTOLAB_CONTINUOUS_V1",
+  "stage": "0003",
+  "purpose": "new_structural_research_after_metal_execution_not_forward_eligible",
+  "created_before_run": true,
+  "historical_status": "2019-2026 RESEARCH EXPOSED; NO HISTORICAL HOLDOUT",
+  "closed_or_not_forward_eligible": [
+    "EURUSD excess_reversion closed",
+    "metal compression-break exact candidate not forward-eligible under frozen DD gate"
+  ],
+  "families": [
+    {
+      "name": "daily_tsmom",
+      "lookback_days": [2,5,10,20],
+      "hold_hours": [24,72]
+    },
+    {
+      "name": "daily_tsreversal",
+      "lookback_days": [2,5,10,20],
+      "hold_hours": [24,72]
+    },
+    {
+      "name": "impulse_momentum",
+      "lookback_hours": [3,6,12],
+      "threshold_atr": [0.75,1.25],
+      "hold_hours": [4,8,24]
+    },
+    {
+      "name": "impulse_reversal",
+      "lookback_hours": [3,6,12],
+      "threshold_atr": [0.75,1.25],
+      "hold_hours": [4,8,24]
+    },
+    {
+      "name": "range_position_momentum",
+      "lookback_hours": [48,120],
+      "edge_fraction": [0.15,0.25],
+      "hold_hours": [8,24]
+    },
+    {
+      "name": "range_position_reversal",
+      "lookback_hours": [48,120],
+      "edge_fraction": [0.15,0.25],
+      "hold_hours": [8,24]
+    }
+  ],
+  "event_rules": {
+    "causal_completed_bars_only": true,
+    "entry": "next H1 open",
+    "exit": "fixed horizon H1 open",
+    "cooldown": "hold_hours",
+    "cost": "one observed spread at entry converted to price and subtracted",
+    "normalization": "ATR14 at signal"
+  },
+  "scopes": ["ALL","FX","NON_FX"],
+  "gates": {
+    "events_min": 300,
+    "equal_weight_symbol_mean_atr": ">0.05",
+    "stress_2x_cost_mean_atr": ">0",
+    "trim_top_1pct_mean_atr": ">0",
+    "positive_symbol_ratio": ">=0.60",
+    "positive_full_years_2019_2025": ">=5 of 7",
+    "positive_classes": ">=2 when scope ALL; scope-specific otherwise",
+    "max_positive_contribution_single_symbol": "<=0.35"
+  },
+  "prohibited": {
+    "no_real_tick_tuning_of_old_metal_candidate": true,
+    "no_new_historical_holdout_claim": true,
+    "no_live": true
+  }
+}
