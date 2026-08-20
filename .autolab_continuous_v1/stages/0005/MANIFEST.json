@@ -1,0 +1,13 @@
+{
+  "chain_id": "AUTOLAB_CONTINUOUS_V1",
+  "stage": "0005",
+  "folder": "AUTOLAB_STAGE_0005_PAIR_RELATIVE_VALUE",
+  "start_bat": "RUN_STAGE_0005.bat",
+  "purpose": "structurally distinct pair relative-value research after stage 0004 cross-sectional failure",
+  "files": {
+    "RESEARCH_PROTOCOL_STAGE0005.json": "0192db34a4ddfcbb8f6cece66b950312632a6c50ba9e8838f513deb896fb0b31",
+    "SOURCE_MANIFEST_V0211.csv": "fce21ee4eab1b14c673287c39e3a1b9598be4b48a001999e003d8775418fdf8c",
+    "RESEARCH_STAGE0005.py": "6f61ac9d8f4cd04dbd7903784fd51e7da838932574a7dc81be1ba129a02f3bad",
+    "RUN_STAGE_0005.bat": "1d0882201cc828792c8f0754c57acb7eb70d327bc6f8b3e90f1825d88f8bb76e"
+  }
+}
