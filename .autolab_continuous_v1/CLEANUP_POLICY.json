@@ -1,0 +1,64 @@
+{
+  "chain_id": "AUTOLAB_CONTINUOUS_V1",
+  "version": "1.0",
+  "root": "C:\\dev_EA_MT5",
+  "policy": "conservative_automatic_cleanup_after_successful_stage",
+  "trigger": {
+    "only_after_stage_completed": true,
+    "handoff_zip_must_exist": true,
+    "do_not_cleanup_active_stage": true,
+    "keep_one_previous_stage_for_rollback": true
+  },
+  "preserve_always": [
+    "C:\\dev_EA_MT5\\AUTOLAB_CONTINUOUS_GUARD_v2_1",
+    "C:\\dev_EA_MT5\\_AUTOLAB_CONTINUOUS_V2",
+    "C:\\dev_EA_MT5\\archive",
+    "C:\\dev_EA_MT5\\chatgpt_upload_ui.json",
+    "C:\\dev_EA_MT5\\HOLDOUT_2025_2026_CONSUMED.txt",
+    "C:\\dev_EA_MT5\\_AUTOLOOP_BRIDGE",
+    "C:\\dev_EA_MT5\\data\\v0.21.1"
+  ],
+  "preserve_dynamic": [
+    "current active stage folder",
+    "immediately previous successful stage folder",
+    "current discovery pool data and manifest",
+    "locked validation selection and any validation data not yet consumed",
+    "current frozen protocol/candidate/source manifests",
+    "current state/results required by next stage"
+  ],
+  "archive_before_delete": [
+    "completed AutoLab handoff ZIPs",
+    "final summaries",
+    "frozen protocols",
+    "frozen candidate sources when applicable"
+  ],
+  "archive_destination": "C:\\dev_EA_MT5\\archive\\autolab_handoffs",
+  "eligible_for_deletion_when_obsolete": [
+    "old MT5_AutoLab_v* standalone package folders",
+    "old AUTOLAB_STAGE_* downloaded stage folders older than rollback stage",
+    "C:\\dev_EA_MT5\\AUTOLAB_CONTINUOUS_LOOP_v1 after Guard v2.1 is confirmed active",
+    "C:\\dev_EA_MT5\\AUTOLAB_CONTINUOUS_GUARD_v2 after Guard v2.1 is confirmed active",
+    "obsolete C:\\dev_EA_MT5\\autolab\\v* directories",
+    "obsolete C:\\dev_EA_MT5\\experiments\\v* directories",
+    "obsolete versioned AutoLab logs/reports/config files already archived",
+    "__pycache__ directories",
+    "*.pyc files",
+    "temporary extraction/download folders from completed stages"
+  ],
+  "never_delete": [
+    "non-AutoLab user files",
+    "unrecognized folders",
+    "broker/MT5 installation or terminal data outside explicit AutoLab-owned paths",
+    "holdout-consumed marker",
+    "archives",
+    "active watchdog/controller files",
+    "currently referenced source data"
+  ],
+  "safety": {
+    "dry_run_inventory_first": true,
+    "write_cleanup_log": "C:\\dev_EA_MT5\\logs\\AUTOLAB_CLEANUP.log",
+    "skip_locked_files_and_retry_later": true,
+    "never_fail_scientific_stage_only_because_cleanup_failed": true,
+    "no_explorer_process_kill": true
+  }
+}
