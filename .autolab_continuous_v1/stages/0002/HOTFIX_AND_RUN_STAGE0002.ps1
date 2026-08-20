@@ -25,13 +25,15 @@ if((Sha $protocol) -ne $expectedProtocol){throw "Protocol SHA mismatch avant hot
 $txt=Get-Content $main -Raw -Encoding UTF8
 $before=$txt
 
+# Bug 1: accidental double suffix created by stage-0001 text replacement.
 $txt=$txt.Replace(
   "import autolab_engine_v02311 as b",
   "import autolab_engine_v0231 as b"
 )
 
+# Bug 2: frozen candidate remains v0.23 byte-for-byte and therefore writes V023 CSV names.
 $txt=$txt.Replace(
-  'for pre in ("AUTOLAB_V0231_SIGNALS_","AUTOLAB_V0231_TRADES_"):',$
+  'for pre in ("AUTOLAB_V0231_SIGNALS_","AUTOLAB_V0231_TRADES_"):',
   'for pre in ("AUTOLAB_V023_SIGNALS_","AUTOLAB_V023_TRADES_"):'
 )
 $txt=$txt.Replace(
@@ -39,6 +41,7 @@ $txt=$txt.Replace(
   'p=COMMON/(f"AUTOLAB_V023_{k}_{sym}.csv")'
 )
 
+# Identify the current automatic return as stage 0002.
 $txt=$txt.Replace(
   "AUTOLAB CONTINUOUS V1 STAGE 0001 / v0.23.1 LOOPTEST",
   "AUTOLAB CONTINUOUS V1 STAGE 0002 / v0.23.1 LOOPTEST HOTFIX"
@@ -52,6 +55,7 @@ if($txt -notmatch 'AUTOLAB_V023_TRADES_'){throw "Prefix trades V023 non corrige"
 Copy-Item $main ($main+".bak_stage0002") -Force
 Set-Content -Path $main -Value $txt -Encoding UTF8
 
+# Scientific freeze must remain untouched.
 if((Sha $candidate) -ne $expectedCandidate){throw "Candidate modifie par hotfix"}
 if((Sha $protocol) -ne $expectedProtocol){throw "Protocol modifie par hotfix"}
 
