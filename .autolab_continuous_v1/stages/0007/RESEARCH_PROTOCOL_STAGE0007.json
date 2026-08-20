@@ -16,13 +16,98 @@
     "validation_price_path_read_prohibited": true
   },
   "families": {
-    "ts_momentum": {"lookback_bars": [24,72,120], "hold_bars": [8,24,72]},
-    "ts_reversal": {"lookback_bars": [24,72,120], "hold_bars": [8,24,72]},
-    "range_breakout": {"lookback_bars": [24,72,120], "hold_bars": [8,24,72]},
-    "range_reversal": {"lookback_bars": [24,72,120], "hold_bars": [8,24,72]},
-    "impulse_momentum": {"lookback_bars": [6,12], "threshold_atr": [1.0,1.5], "hold_bars": [4,8,24]},
-    "impulse_reversal": {"lookback_bars": [6,12], "threshold_atr": [1.0,1.5], "hold_bars": [4,8,24]},
-    "compression_breakout": {"compression_ratio": [0.65,0.80], "breakout_lookback": [24,72], "hold_bars": [8,24]}
+    "ts_momentum": {
+      "lookback_bars": [
+        24,
+        72,
+        120
+      ],
+      "hold_bars": [
+        8,
+        24,
+        72
+      ]
+    },
+    "ts_reversal": {
+      "lookback_bars": [
+        24,
+        72,
+        120
+      ],
+      "hold_bars": [
+        8,
+        24,
+        72
+      ]
+    },
+    "range_breakout": {
+      "lookback_bars": [
+        24,
+        72,
+        120
+      ],
+      "hold_bars": [
+        8,
+        24,
+        72
+      ]
+    },
+    "range_reversal": {
+      "lookback_bars": [
+        24,
+        72,
+        120
+      ],
+      "hold_bars": [
+        8,
+        24,
+        72
+      ]
+    },
+    "impulse_momentum": {
+      "lookback_bars": [
+        6,
+        12
+      ],
+      "threshold_atr": [
+        1.0,
+        1.5
+      ],
+      "hold_bars": [
+        4,
+        8,
+        24
+      ]
+    },
+    "impulse_reversal": {
+      "lookback_bars": [
+        6,
+        12
+      ],
+      "threshold_atr": [
+        1.0,
+        1.5
+      ],
+      "hold_bars": [
+        4,
+        8,
+        24
+      ]
+    },
+    "compression_breakout": {
+      "compression_ratio": [
+        0.65,
+        0.8
+      ],
+      "breakout_lookback": [
+        24,
+        72
+      ],
+      "hold_bars": [
+        8,
+        24
+      ]
+    }
   },
   "expected_hypotheses": 68,
   "event_rules": {
@@ -32,7 +117,10 @@
     "cooldown": "hold_bars; one active event per instrument/config",
     "atr": "simple ATR14 at signal",
     "cost": "observed entry spread converted to price and divided by ATR14",
-    "stress": ["x2 spread cost","x3 spread cost"],
+    "stress": [
+      "x2 spread cost",
+      "x3 spread cost"
+    ],
     "normalization": "ATR14",
     "no_clock_alignment_required": true
   },
