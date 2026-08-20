@@ -1,0 +1,11 @@
+{
+  "chain_id": "AUTOLAB_CONTINUOUS_V1",
+  "stage": "0002",
+  "folder": "AUTOLAB_STAGE_0002_HOTFIX",
+  "start_bat": "RUN_STAGE_0002.bat",
+  "purpose": "technical recovery of stage 0001; no scientific changes",
+  "files": {
+    "HOTFIX_AND_RUN_STAGE0002.ps1": "55be40204c3c2110e1338c698f9387a1cdc6deadd597d0a81cb36b001a2794df",
+    "RUN_STAGE_0002.bat": "ac830bc2063a71ee0f4c3ad8f1b1fb599c257599c31e69cba26087dfdc6a0b96"
+  }
+}
