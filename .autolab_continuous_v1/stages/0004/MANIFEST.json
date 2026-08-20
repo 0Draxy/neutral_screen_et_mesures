@@ -1,0 +1,13 @@
+{
+  "chain_id": "AUTOLAB_CONTINUOUS_V1",
+  "stage": "0004",
+  "folder": "AUTOLAB_STAGE_0004_CROSS_SECTIONAL",
+  "start_bat": "RUN_STAGE_0004.bat",
+  "purpose": "structurally distinct cross-sectional relative-strength research after stage0003 found no robust single-asset lead",
+  "files": {
+    "RESEARCH_PROTOCOL_STAGE0004.json": "2d78f0ceca02b487dfc5334c31c984248942924b7208c2ed8c7c89c26719fc8e",
+    "SOURCE_MANIFEST_V0211.csv": "fce21ee4eab1b14c673287c39e3a1b9598be4b48a001999e003d8775418fdf8c",
+    "RESEARCH_STAGE0004.py": "303322bd4549eba72cdd38add43ecdd449f02a01fee1052e615d28839d23e75b",
+    "RUN_STAGE_0004.bat": "6fb2e088feba161eabb31182db4477822b619cd68a4a1c73df9128651b01d581"
+  }
+}
