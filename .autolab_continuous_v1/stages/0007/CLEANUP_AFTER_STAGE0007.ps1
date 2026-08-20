@@ -22,10 +22,15 @@ function SafeMove([string]$p,[string]$dest){
 }
 
 L "START conservative cleanup"
-Get-ChildItem (Join-Path $B "reports") -File -ErrorAction SilentlyContinue |
-  Where-Object {$_.Name -match '^AUTOLAB_A_ENVOYER_CHATGPT_' -and $_.Name -notmatch 'STAGE0006|STAGE0007'} |
-  ForEach-Object {SafeMove $_.FullName $archive}
 
+# Archive old handoff ZIPs first. Keep stage0006 and stage0007 current evidence in reports.
+Get-ChildItem (Join-Path $B "reports") -File -ErrorAction SilentlyContinue |
+  Where-Object {
+    $_.Name -match '^AUTOLAB_A_ENVOYER_CHATGPT_' -and
+    $_.Name -notmatch 'STAGE0006|STAGE0007'
+  } | ForEach-Object {SafeMove $_.FullName $archive}
+
+# Obsolete top-level AutoLab runners/stages. Preserve Guard v2_1, stage0006 and current stage0007.
 $obsoleteTop=@(
   "AUTOLAB_CONTINUOUS_GUARD_v2",
   "AUTOLAB_CONTINUOUS_LOOP_v1",
@@ -39,6 +44,7 @@ $obsoleteTop=@(
 )
 foreach($n in $obsoleteTop){SafeRemove (Join-Path $B $n)}
 
+# Old working trees, keeping stage0006 + current stage0007 for one-stage rollback.
 foreach($p in @(
   "autolab\v0.23",
   "autolab\continuous_stage_0003",
@@ -50,20 +56,26 @@ foreach($p in @(
   "experiments\continuous_stage_0005"
 )){SafeRemove (Join-Path $B $p)}
 
+# Remove old stage 0003-0005 report/log/config files after their handoff ZIPs have been archived.
 foreach($dirName in @("reports","logs","config")){
   $d=Join-Path $B $dirName
   if(Test-Path $d){
     Get-ChildItem $d -File -ErrorAction SilentlyContinue |
-      Where-Object {$_.Name -match 'STAGE0003|STAGE0004|STAGE0005|V023(?!1)|v023(?!1)'} |
-      ForEach-Object {SafeRemove $_.FullName}
+      Where-Object {
+        $_.Name -match 'STAGE0003|STAGE0004|STAGE0005|V023(?!1)|v023(?!1)'
+      } | ForEach-Object {SafeRemove $_.FullName}
   }
 }
 
+# Python caches are disposable.
 Get-ChildItem $B -Directory -Filter "__pycache__" -Recurse -ErrorAction SilentlyContinue |
-  Where-Object {$_.FullName -notlike "*\archive\*"} | ForEach-Object {SafeRemove $_.FullName}
+  Where-Object {$_.FullName -notlike "*\archive\*"} |
+  ForEach-Object {SafeRemove $_.FullName}
 Get-ChildItem $B -File -Filter "*.pyc" -Recurse -ErrorAction SilentlyContinue |
-  Where-Object {$_.FullName -notlike "*\archive\*"} | ForEach-Object {SafeRemove $_.FullName}
+  Where-Object {$_.FullName -notlike "*\archive\*"} |
+  ForEach-Object {SafeRemove $_.FullName}
 
+# Explicit invariants: never touch these paths/files.
 $mustKeep=@(
   (Join-Path $B "AUTOLAB_CONTINUOUS_GUARD_v2_1"),
   (Join-Path $B "_AUTOLAB_CONTINUOUS_V2"),
@@ -73,6 +85,8 @@ $mustKeep=@(
   (Join-Path $B "chatgpt_upload_ui.json"),
   (Join-Path $B "HOLDOUT_2025_2026_CONSUMED.txt")
 )
-foreach($p in $mustKeep){if(Test-Path $p){L "PRESERVE OK $p"} else {L "PRESERVE ABSENT $p"}}
+foreach($p in $mustKeep){
+  if(Test-Path $p){L "PRESERVE OK $p"} else {L "PRESERVE ABSENT $p"}
+}
 L "END cleanup"
 exit 0
