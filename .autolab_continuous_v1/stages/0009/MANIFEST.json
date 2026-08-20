@@ -1,0 +1,12 @@
+{
+  "chain_id": "AUTOLAB_CONTINUOUS_V1",
+  "stage": "0009",
+  "folder": "AUTOLAB_STAGE_0009_UPLOAD_RECOVERY_V4",
+  "start_bat": "RUN_STAGE_0009.bat",
+  "purpose": "recover stage0007 ZIP upload; fix Firefox UIA child-process handling; no research rerun",
+  "files": {
+    "AUTOLOOP_UPLOAD_ROBUST_V4.ps1": "bacc2e89773bf393ce6a2be9ccd8aa0286f84396528da565ac82dd0b027f4a7e",
+    "RECOVER_STAGE0007_UPLOAD_V4.ps1": "0bd2212c15dbf6e7a49679868cb0ea8cbe9d5481dbf790a92363280dc3905bbd",
+    "RUN_STAGE_0009.bat": "c02890b520b9c0f4b01ae13f83947809577a7495b55e2d607b2b7b1c63a6efbb"
+  }
+}
