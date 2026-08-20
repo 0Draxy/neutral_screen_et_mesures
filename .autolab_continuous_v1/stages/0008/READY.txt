@@ -1,0 +1,4 @@
+READY
+chain_id=AUTOLAB_CONTINUOUS_V1
+stage=0008
+purpose=recover_stage0007_upload_and_install_uploader_v3
