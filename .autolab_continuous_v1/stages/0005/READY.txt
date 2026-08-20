@@ -1,0 +1,4 @@
+READY
+chain_id=AUTOLAB_CONTINUOUS_V1
+stage=0005
+purpose=pair_relative_value_research
