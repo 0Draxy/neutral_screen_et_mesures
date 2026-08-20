@@ -102,6 +102,7 @@ def aligned_pair(a,b):
     return out
 
 def rolling_z(spreads,look):
+    # z at i uses ONLY prior look values [i-look, i); current spread is excluded.
     z=[None]*len(spreads)
     s=0.0; ss=0.0
     for i,v in enumerate(spreads):
@@ -118,7 +119,7 @@ def rolling_z(spreads,look):
     return z
 
 def make_events(pair_name,cls,data,style,look,zlevel,hold):
-    spreads=[math.log(x[2])-math.log(x[6]) for x in data]
+    spreads=[math.log(x[2])-math.log(x[6]) for x in data]  # closeA / closeB
     zz=rolling_z(spreads,look)
     ev=[]; next_allowed=0
     for i in range(max(look+1,2),len(data)-hold-2):
@@ -130,11 +131,13 @@ def make_events(pair_name,cls,data,style,look,zlevel,hold):
         if abs(z)<zlevel or abs(zp)>=zlevel:continue
         en=i+1; ex=i+1+hold
         if ex>=len(data):continue
+        # Require same research horizon years only.
         if data[en][0].year<2019 or data[ex][0].year>2026:continue
         a_en=data[en][1]; b_en=data[en][5]
         a_ex=data[ex][1]; b_ex=data[ex][5]
         if min(a_en,b_en,a_ex,b_ex)<=0:continue
         ra=a_ex/a_en-1.0; rb=b_ex/b_en-1.0
+        # residual positive => A rich vs B.
         side=1.0 if z>0 else -1.0
         mult=(-side) if style=="pair_mean_reversion" else side
         gross=0.5*mult*ra - 0.5*mult*rb
@@ -274,6 +277,7 @@ def main():
             pairdata[name]=(cls,d)
             log(f"{name} synchronized_bars={len(d)}")
 
+        # Precompute event sets by pair+style+grid.
         cache={}
         for name,a,b,cls in PAIRS:
             _,d=pairdata[name]
