@@ -1,0 +1,15 @@
+{
+  "chain_id": "AUTOLAB_CONTINUOUS_V1",
+  "stage": "0007",
+  "folder": "AUTOLAB_STAGE_0007_DISCOVERY_RESEARCH",
+  "start_bat": "RUN_STAGE_0007.bat",
+  "purpose": "discovery-only multi-family tournament on 29 new instruments; validation remains locked; conservative cleanup after success",
+  "files": {
+    "DISCOVERY_MANIFEST_STAGE0006.csv": "f12a6b89ac3e06276c10cf1821f0a1868aed9b5cca1c2c9b412ef991875a370c",
+    "RESEARCH_PROTOCOL_STAGE0007.json": "c55180064d93dc0520262e59abdb9643ff98cbe2382322f8e5de35a1080a04d1",
+    "VALIDATION_POOL_STAGE0006_LOCKED.json": "c208bea3a979b5e5f860b40317dd434dc3e6778e864db6934a375ffaed64722e",
+    "RESEARCH_STAGE0007.py": "0b0a78be04ebd54c68faf0f7a2ae9ee80cc26f0adb1b33c383978b10b9b7130b",
+    "CLEANUP_AFTER_STAGE0007.ps1": "84291da23d1f9f9d211bb11eeeacf8d81deec2ea75906610c330bda1904bf38e",
+    "RUN_STAGE_0007.bat": "2589268b32ecc1f8d65a6db270780c814527961f6d25bb287febb9cf7e8bc14d"
+  }
+}
