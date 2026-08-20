@@ -1,0 +1,5 @@
+READY
+chain_id=AUTOLAB_CONTINUOUS_V1
+stage=0006
+purpose=new_cross_instrument_evidence_pool
+validation=LOCKED_NOT_EXTRACTED
