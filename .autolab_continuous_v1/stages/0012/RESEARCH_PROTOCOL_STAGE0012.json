@@ -1,0 +1,101 @@
+{
+  "chain_id": "AUTOLAB_CONTINUOUS_V1",
+  "stage": "0012",
+  "name": "DISCOVERY_WEEKDAY_SEASONALITY_TOURNAMENT",
+  "created_before_discovery_analysis": true,
+  "rationale": {
+    "stage0011_outcome": "0 robust leads across 30 close-to-close sign-sequence serial-dependence hypotheses",
+    "structural_change": "move to deterministic calendar seasonality; trigger depends only on weekday of first available H1 bar of each calendar date, never on price direction/magnitude/range/wick/breakout/RSI/ATR regime",
+    "no_micro_tuning": true,
+    "validation_remains_locked": true
+  },
+  "scientific_status": {
+    "discovery_pool": "same 29 stage0006 discovery instruments only",
+    "validation_pool": "LOCKED / NOT EXTRACTED / NOT ANALYZED",
+    "stage0011_candidate": "NONE",
+    "live_trading": false
+  },
+  "source_integrity": {
+    "stage0011_handoff_sha256": "cae1d6e42178a5a8c6c8ac31479b0628fd8bbb28315960dc9dc254c0af3f1cdd",
+    "discovery_manifest_sha256": "f12a6b89ac3e06276c10cf1821f0a1868aed9b5cca1c2c9b412ef991875a370c",
+    "validation_lock_sha256": "c208bea3a979b5e5f860b40317dd434dc3e6778e864db6934a375ffaed64722e",
+    "validation_price_path_read_prohibited": true
+  },
+  "families": {
+    "weekday_long": {
+      "weekday": [0,1,2,3,4,5,6],
+      "hold_bars": [8,24,72]
+    },
+    "weekday_short": {
+      "weekday": [0,1,2,3,4,5,6],
+      "hold_bars": [8,24,72]
+    }
+  },
+  "weekday_map": {
+    "0": "Monday",
+    "1": "Tuesday",
+    "2": "Wednesday",
+    "3": "Thursday",
+    "4": "Friday",
+    "5": "Saturday",
+    "6": "Sunday"
+  },
+  "expected_hypotheses": 42,
+  "signal_definition": {
+    "trigger": "first available completed H1 bar of each calendar date whose datetime.weekday equals configured weekday",
+    "direction": "fixed LONG for weekday_long; fixed SHORT for weekday_short; direction is not inferred from price",
+    "entry": "next available H1 bar open after trigger",
+    "exit": "fixed number of instrument H1 bars later",
+    "cooldown": "hold_bars; one active event per instrument/config",
+    "atr": "simple ATR14 at signal only for normalization; ATR is not a trigger",
+    "cost": "observed entry spread converted to price and divided by ATR14",
+    "stress": ["x2 spread cost","x3 spread cost"],
+    "normalization": "ATR14",
+    "no_clock_alignment_required": true
+  },
+  "robustness_gates": {
+    "events_min": 600,
+    "eligible_symbols_min": 18,
+    "eligible_categories_min": 6,
+    "equal_symbol_mean_atr": ">0.04",
+    "equal_symbol_stress2_atr": ">0",
+    "equal_symbol_stress3_atr": ">0",
+    "pooled_trim_top1pct_atr": ">0",
+    "pooled_trim_top5pct_atr": ">0",
+    "positive_symbol_ratio": ">=0.60",
+    "positive_category_ratio": ">=0.625",
+    "positive_full_years_2019_2025": ">=5 of 7 with >=6 eligible",
+    "both_time_halves_positive": "2019-2022 and 2023-2025",
+    "max_positive_symbol_contribution": "<=0.20",
+    "max_positive_category_contribution": "<=0.40",
+    "parameter_neighborhood_good_ratio": ">=0.50"
+  },
+  "eligibility_notes": {
+    "eligible_symbol_min_events": 20,
+    "eligible_category_min_events": 40,
+    "eligible_year_min_events": 50,
+    "2026_partial": "diagnostic only, not year gate",
+    "closed_weekend_markets": "Saturday/Sunday hypotheses naturally have no events and fail; they are retained because the family was preregistered uniformly across all discovery categories"
+  },
+  "neighbor_definition": "same family; exactly one parameter moves one adjacent predefined grid step; weekday adjacency is calendar adjacent within [Mon..Sun] without wrap; hold adjacency is [8,24,72]; good if equal-symbol mean>0, stress2>0, pooled trim1>0",
+  "automatic_freeze": {
+    "if_one_or_more_leads": true,
+    "ranking": [
+      "highest robustness_floor = min(stress3_equal_symbol, trim5_pooled, half1_equal_symbol, half2_equal_symbol)",
+      "highest positive_symbol_ratio",
+      "highest neighbor_good_ratio",
+      "highest equal_symbol_mean_atr",
+      "lexicographic hypothesis_id"
+    ],
+    "output": "FROZEN_DISCOVERY_CANDIDATE_STAGE0012.json",
+    "validation_remains_locked_until_next_stage": true
+  },
+  "next_if_frozen": "STAGE0013 extracts validation pool only and applies exact frozen candidate; no discovery retuning",
+  "next_if_no_lead": "continue discovery with another structurally distinct family; validation stays locked",
+  "prohibited": {
+    "no_validation_price_read": true,
+    "no_validation_extraction": true,
+    "no_live": true,
+    "no_micro_tuning_failed_stage0007_stage0010_stage0011_families": true
+  }
+}
