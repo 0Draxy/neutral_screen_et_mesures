@@ -1,0 +1,19 @@
+{
+  "chain_id": "AUTOLAB_CONTINUOUS_V1",
+  "stage": "0011",
+  "folder": "AUTOLAB_STAGE_0011_DISCOVERY_SERIAL_DEPENDENCE",
+  "start_bat": "RUN_STAGE_0011.bat",
+  "purpose": "discovery-only structurally-distinct close-to-close sign-sequence serial-dependence tournament after STAGE0010 produced 0 robust leads; validation remains locked; no live",
+  "source_stage0010_handoff_sha256": "6daec3091671147be71c8cedf0d984d0e7d26a635ff219094c312d93f3c2f296",
+  "base_stage0007_research_sha256": "0b0a78be04ebd54c68faf0f7a2ae9ee80cc26f0adb1b33c383978b10b9b7130b",
+  "files": {
+    "DISCOVERY_MANIFEST_STAGE0006.csv": "f12a6b89ac3e06276c10cf1821f0a1868aed9b5cca1c2c9b412ef991875a370c",
+    "RESEARCH_PROTOCOL_STAGE0011.json": "e93a62843e295823b4f7c6e0ff116fd85a460e3750a6be57b023c95616a7bd35",
+    "RESEARCH_STAGE0011.py": "f3b326788e0860f9013614bf90fabc45b32ae8a3d1417d4c0487734261b9bb13",
+    "RUN_STAGE_0011.bat": "fcaf59907fdb5e9b7ba42c0bdb6e7607fd65881fb44b2b01a1d45b6a4c137a51",
+    "STAGE0010_RESULT_LOCK.json": "10fe039148bf3a6f405247454d1de5e86ed2f602f45faaf6902ce26b19c2d849",
+    "STAGE0011_DECISION.md": "d7d1b0ac20fb5651d6c7ce7e67c8d831168c06d53677d117966f994316be5f2d",
+    "UPLOAD_STAGE0011_RESULT.ps1": "6b8d4d179c70f90f68639b91f75344d3047bc7be4d5e1a3d3b7caf092cd77ed4",
+    "VALIDATION_POOL_STAGE0006_LOCKED.json": "c208bea3a979b5e5f860b40317dd434dc3e6778e864db6934a375ffaed64722e"
+  }
+}
