@@ -6,7 +6,7 @@
   "purpose": "discovery-only structurally-distinct deterministic weekday seasonality tournament after STAGE0011 produced 0 robust leads; validation remains locked; no live",
   "source_stage0011_handoff_sha256": "cae1d6e42178a5a8c6c8ac31479b0628fd8bbb28315960dc9dc254c0af3f1cdd",
   "base_stage0007_research_sha256": "0b0a78be04ebd54c68faf0f7a2ae9ee80cc26f0adb1b33c383978b10b9b7130b",
-  "technical_revision": "EXACT_SEND_TOKEN_PROOF_V1",
+  "technical_revision": "TEXT_RECOGNITION_IN_COMPOSER_ZONE_V1",
   "files": {
     "DISCOVERY_MANIFEST_STAGE0006.csv": "f12a6b89ac3e06276c10cf1821f0a1868aed9b5cca1c2c9b412ef991875a370c",
     "RESEARCH_PROTOCOL_STAGE0012.json": "e371249fcb9d8a02dca16b9ae4ab9f7b2553ce87b6ff2cabf2e3018fbfb21ba9",
@@ -14,7 +14,7 @@
     "RUN_STAGE_0012.bat": "0a0a891e606f9ad86e8307188610974f98a5989023a5ec0a904aff28b0efcc4f",
     "STAGE0011_RESULT_LOCK.json": "c258ea72d5f0c0629eed958932164b9c0836281e076e7dd7cd59de78ffe8401d",
     "STAGE0012_DECISION.md": "99b49a5a14ba849d809a7d7afa156a32d2c5b40e5add51c9e2412d780ad5c2e2",
-    "UPLOAD_STAGE0012_RESULT.ps1": "142d877e46955b25875d68de78644aefc2496de8ca6a4b4bc1a2fb6d5562d782",
+    "UPLOAD_STAGE0012_RESULT.ps1": "ffa54a0e738eb08e0f011071e462d7b76184e837774c6a86a84cea62326af10e",
     "VALIDATION_POOL_STAGE0006_LOCKED.json": "c208bea3a979b5e5f860b40317dd434dc3e6778e864db6934a375ffaed64722e"
   }
 }
