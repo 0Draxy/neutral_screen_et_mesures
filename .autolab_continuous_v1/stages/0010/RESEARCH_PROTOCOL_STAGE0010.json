@@ -1,0 +1,90 @@
+{
+  "chain_id": "AUTOLAB_CONTINUOUS_V1",
+  "stage": "0010",
+  "name": "DISCOVERY_LOCAL_BAR_STRUCTURE_TOURNAMENT",
+  "created_before_discovery_analysis": true,
+  "rationale": {
+    "stage0007_outcome": "0 robust leads across 68 trend/range/impulse/compression hypotheses",
+    "structural_change": "move from multi-bar directional/range hypotheses to local completed-bar morphology and short pattern-state hypotheses",
+    "no_micro_tuning": true,
+    "validation_remains_locked": true
+  },
+  "scientific_status": {
+    "discovery_pool": "same 29 stage0006 discovery instruments only",
+    "validation_pool": "LOCKED / NOT EXTRACTED / NOT ANALYZED",
+    "stage0007_candidate": "NONE",
+    "live_trading": false
+  },
+  "source_integrity": {
+    "stage0007_handoff_sha256": "d06e5c0931280e1c5fbfad3b6a6f2cca6ebd399fb0ca93f2407a19d1d53c757e",
+    "discovery_manifest_sha256": "f12a6b89ac3e06276c10cf1821f0a1868aed9b5cca1c2c9b412ef991875a370c",
+    "validation_lock_sha256": "c208bea3a979b5e5f860b40317dd434dc3e6778e864db6934a375ffaed64722e",
+    "validation_price_path_read_prohibited": true
+  },
+  "families": {
+    "wide_bar_momentum": {"range_atr": [1.25,1.75], "close_location": [0.65,0.8], "hold_bars": [2,4,8]},
+    "wide_bar_reversal": {"range_atr": [1.25,1.75], "close_location": [0.65,0.8], "hold_bars": [2,4,8]},
+    "wick_rejection": {"wick_share": [0.45,0.6], "hold_bars": [2,4,8]},
+    "outside_bar_momentum": {"hold_bars": [2,4,8]},
+    "outside_bar_reversal": {"hold_bars": [2,4,8]},
+    "inside_breakout": {"hold_bars": [2,4,8]},
+    "close_extreme_momentum": {"close_location": [0.75,0.85], "hold_bars": [2,4,8]},
+    "close_extreme_reversal": {"close_location": [0.75,0.85], "hold_bars": [2,4,8]}
+  },
+  "expected_hypotheses": 51,
+  "event_rules": {
+    "completed_bars_only": true,
+    "entry": "next available H1 bar open after completed pattern signal",
+    "exit": "fixed number of instrument H1 bars later",
+    "cooldown": "hold_bars; one active event per instrument/config",
+    "atr": "simple ATR14 at signal",
+    "cost": "observed entry spread converted to price and divided by ATR14",
+    "stress": ["x2 spread cost","x3 spread cost"],
+    "normalization": "ATR14",
+    "no_clock_alignment_required": true
+  },
+  "robustness_gates": {
+    "events_min": 600,
+    "eligible_symbols_min": 18,
+    "eligible_categories_min": 6,
+    "equal_symbol_mean_atr": ">0.04",
+    "equal_symbol_stress2_atr": ">0",
+    "equal_symbol_stress3_atr": ">0",
+    "pooled_trim_top1pct_atr": ">0",
+    "pooled_trim_top5pct_atr": ">0",
+    "positive_symbol_ratio": ">=0.60",
+    "positive_category_ratio": ">=0.625",
+    "positive_full_years_2019_2025": ">=5 of 7 with >=6 eligible",
+    "both_time_halves_positive": "2019-2022 and 2023-2025",
+    "max_positive_symbol_contribution": "<=0.20",
+    "max_positive_category_contribution": "<=0.40",
+    "parameter_neighborhood_good_ratio": ">=0.50"
+  },
+  "eligibility_notes": {
+    "eligible_symbol_min_events": 20,
+    "eligible_category_min_events": 40,
+    "eligible_year_min_events": 50,
+    "2026_partial": "diagnostic only, not year gate"
+  },
+  "neighbor_definition": "same family; exactly one parameter moves one adjacent predefined grid step; good if equal-symbol mean>0, stress2>0, pooled trim1>0",
+  "automatic_freeze": {
+    "if_one_or_more_leads": true,
+    "ranking": [
+      "highest robustness_floor = min(stress3_equal_symbol, trim5_pooled, half1_equal_symbol, half2_equal_symbol)",
+      "highest positive_symbol_ratio",
+      "highest neighbor_good_ratio",
+      "highest equal_symbol_mean_atr",
+      "lexicographic hypothesis_id"
+    ],
+    "output": "FROZEN_DISCOVERY_CANDIDATE_STAGE0010.json",
+    "validation_remains_locked_until_next_stage": true
+  },
+  "next_if_frozen": "STAGE0011 extracts validation pool only and applies exact frozen candidate; no discovery retuning",
+  "next_if_no_lead": "continue discovery with another structurally distinct family; validation stays locked",
+  "prohibited": {
+    "no_validation_price_read": true,
+    "no_validation_extraction": true,
+    "no_live": true,
+    "no_micro_tuning_failed_stage0007_families": true
+  }
+}
