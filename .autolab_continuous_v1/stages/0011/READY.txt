@@ -2,3 +2,4 @@ READY
 chain_id=AUTOLAB_CONTINUOUS_V1
 stage=0011
 purpose=discovery_serial_dependence_validation_locked_no_live
+runner_exitcode_fix=2026-08-21
