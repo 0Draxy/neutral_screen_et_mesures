@@ -10,13 +10,13 @@ echo.
 
 where py.exe >nul 2>&1
 if %errorlevel%==0 (
-  py.exe -3 "%~dp0RESEARCH_STAGE0010.py"
+  py.exe -3 "%~dp0RUN_STAGE0010_PATCH.py"
   exit /b %errorlevel%
 )
 
 where python.exe >nul 2>&1
 if %errorlevel%==0 (
-  python.exe "%~dp0RESEARCH_STAGE0010.py"
+  python.exe "%~dp0RUN_STAGE0010_PATCH.py"
   exit /b %errorlevel%
 )
 
