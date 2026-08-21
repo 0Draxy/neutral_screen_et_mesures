@@ -1,0 +1,4 @@
+READY
+chain_id=AUTOLAB_CONTINUOUS_V1
+stage=0010
+purpose=discovery_local_bar_structure_validation_locked_no_live
