@@ -23,12 +23,36 @@
   },
   "families": {
     "weekday_long": {
-      "weekday": [0,1,2,3,4,5,6],
-      "hold_bars": [8,24,72]
+      "weekday": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6
+      ],
+      "hold_bars": [
+        8,
+        24,
+        72
+      ]
     },
     "weekday_short": {
-      "weekday": [0,1,2,3,4,5,6],
-      "hold_bars": [8,24,72]
+      "weekday": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6
+      ],
+      "hold_bars": [
+        8,
+        24,
+        72
+      ]
     }
   },
   "weekday_map": {
@@ -49,7 +73,10 @@
     "cooldown": "hold_bars; one active event per instrument/config",
     "atr": "simple ATR14 at signal only for normalization; ATR is not a trigger",
     "cost": "observed entry spread converted to price and divided by ATR14",
-    "stress": ["x2 spread cost","x3 spread cost"],
+    "stress": [
+      "x2 spread cost",
+      "x3 spread cost"
+    ],
     "normalization": "ATR14",
     "no_clock_alignment_required": true
   },
