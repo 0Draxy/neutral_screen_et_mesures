@@ -24,20 +24,50 @@
   },
   "families": {
     "streak_continuation": {
-      "run_len": [3, 5, 7],
-      "hold_bars": [8, 24, 72]
+      "run_len": [
+        3,
+        5,
+        7
+      ],
+      "hold_bars": [
+        8,
+        24,
+        72
+      ]
     },
     "streak_reversal": {
-      "run_len": [3, 5, 7],
-      "hold_bars": [8, 24, 72]
+      "run_len": [
+        3,
+        5,
+        7
+      ],
+      "hold_bars": [
+        8,
+        24,
+        72
+      ]
     },
     "alternation_continuation": {
-      "alternation_len": [4, 6],
-      "hold_bars": [8, 24, 72]
+      "alternation_len": [
+        4,
+        6
+      ],
+      "hold_bars": [
+        8,
+        24,
+        72
+      ]
     },
     "alternation_reversal": {
-      "alternation_len": [4, 6],
-      "hold_bars": [8, 24, 72]
+      "alternation_len": [
+        4,
+        6
+      ],
+      "hold_bars": [
+        8,
+        24,
+        72
+      ]
     }
   },
   "expected_hypotheses": 48,
@@ -55,7 +85,10 @@
     "cooldown": "hold_bars; one active event per instrument/config",
     "atr": "simple ATR14 at signal only for normalization; ATR is not a trigger",
     "cost": "observed entry spread converted to price and divided by ATR14",
-    "stress": ["x2 spread cost", "x3 spread cost"],
+    "stress": [
+      "x2 spread cost",
+      "x3 spread cost"
+    ],
     "normalization": "ATR14",
     "no_clock_alignment_required": true
   },
