@@ -1,0 +1,106 @@
+{
+  "chain_id": "AUTOLAB_CONTINUOUS_V1",
+  "stage": "0011",
+  "name": "DISCOVERY_SERIAL_DEPENDENCE_SIGN_SEQUENCE_TOURNAMENT",
+  "created_before_discovery_analysis": true,
+  "rationale": {
+    "stage0010_outcome": "0 robust leads across 51 local completed-bar morphology / short pattern-state hypotheses",
+    "structural_change": "move to price-direction serial dependence defined only by close-to-close sign sequences; no magnitude, range, wick, breakout, or ATR-regime trigger",
+    "why_hold_horizons_are_longer": "stage0010 H2/H4 local-pattern results were strongly negative after costs; this family tests a distinct serial structure at H8/H24/H72 without micro-tuning failed local-bar thresholds",
+    "no_micro_tuning": true,
+    "validation_remains_locked": true
+  },
+  "scientific_status": {
+    "discovery_pool": "same 29 stage0006 discovery instruments only",
+    "validation_pool": "LOCKED / NOT EXTRACTED / NOT ANALYZED",
+    "stage0010_candidate": "NONE",
+    "live_trading": false
+  },
+  "source_integrity": {
+    "stage0010_handoff_sha256": "6daec3091671147be71c8cedf0d984d0e7d26a635ff219094c312d93f3c2f296",
+    "discovery_manifest_sha256": "f12a6b89ac3e06276c10cf1821f0a1868aed9b5cca1c2c9b412ef991875a370c",
+    "validation_lock_sha256": "c208bea3a979b5e5f860b40317dd434dc3e6778e864db6934a375ffaed64722e",
+    "validation_price_path_read_prohibited": true
+  },
+  "families": {
+    "streak_continuation": {
+      "run_len": [3, 5, 7],
+      "hold_bars": [8, 24, 72]
+    },
+    "streak_reversal": {
+      "run_len": [3, 5, 7],
+      "hold_bars": [8, 24, 72]
+    },
+    "alternation_continuation": {
+      "alternation_len": [4, 6],
+      "hold_bars": [8, 24, 72]
+    },
+    "alternation_reversal": {
+      "alternation_len": [4, 6],
+      "hold_bars": [8, 24, 72]
+    }
+  },
+  "expected_hypotheses": 48,
+  "signal_definition": {
+    "price_sign": "sign(close[t]-close[t-1]) on completed H1 bars only; zero-return bars invalidate a sequence",
+    "streak": "last N close-to-close signs are identical and non-zero",
+    "alternation": "last N close-to-close signs are non-zero and strictly alternate",
+    "continuation": "trade in direction of final sign",
+    "reversal": "trade opposite final sign"
+  },
+  "event_rules": {
+    "completed_bars_only": true,
+    "entry": "next available H1 bar open after completed sign-sequence signal",
+    "exit": "fixed number of instrument H1 bars later",
+    "cooldown": "hold_bars; one active event per instrument/config",
+    "atr": "simple ATR14 at signal only for normalization; ATR is not a trigger",
+    "cost": "observed entry spread converted to price and divided by ATR14",
+    "stress": ["x2 spread cost", "x3 spread cost"],
+    "normalization": "ATR14",
+    "no_clock_alignment_required": true
+  },
+  "robustness_gates": {
+    "events_min": 600,
+    "eligible_symbols_min": 18,
+    "eligible_categories_min": 6,
+    "equal_symbol_mean_atr": ">0.04",
+    "equal_symbol_stress2_atr": ">0",
+    "equal_symbol_stress3_atr": ">0",
+    "pooled_trim_top1pct_atr": ">0",
+    "pooled_trim_top5pct_atr": ">0",
+    "positive_symbol_ratio": ">=0.60",
+    "positive_category_ratio": ">=0.625",
+    "positive_full_years_2019_2025": ">=5 of 7 with >=6 eligible",
+    "both_time_halves_positive": "2019-2022 and 2023-2025",
+    "max_positive_symbol_contribution": "<=0.20",
+    "max_positive_category_contribution": "<=0.40",
+    "parameter_neighborhood_good_ratio": ">=0.50"
+  },
+  "eligibility_notes": {
+    "eligible_symbol_min_events": 20,
+    "eligible_category_min_events": 40,
+    "eligible_year_min_events": 50,
+    "2026_partial": "diagnostic only, not year gate"
+  },
+  "neighbor_definition": "same family; exactly one parameter moves one adjacent predefined grid step; good if equal-symbol mean>0, stress2>0, pooled trim1>0",
+  "automatic_freeze": {
+    "if_one_or_more_leads": true,
+    "ranking": [
+      "highest robustness_floor = min(stress3_equal_symbol, trim5_pooled, half1_equal_symbol, half2_equal_symbol)",
+      "highest positive_symbol_ratio",
+      "highest neighbor_good_ratio",
+      "highest equal_symbol_mean_atr",
+      "lexicographic hypothesis_id"
+    ],
+    "output": "FROZEN_DISCOVERY_CANDIDATE_STAGE0011.json",
+    "validation_remains_locked_until_next_stage": true
+  },
+  "next_if_frozen": "STAGE0012 extracts validation pool only and applies exact frozen candidate; no discovery retuning",
+  "next_if_no_lead": "continue discovery with another structurally distinct family; validation stays locked",
+  "prohibited": {
+    "no_validation_price_read": true,
+    "no_validation_extraction": true,
+    "no_live": true,
+    "no_micro_tuning_failed_stage0007_or_stage0010_families": true
+  }
+}
