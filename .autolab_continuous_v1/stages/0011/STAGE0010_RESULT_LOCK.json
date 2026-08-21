@@ -1,0 +1,20 @@
+{
+  "chain_id": "AUTOLAB_CONTINUOUS_V1",
+  "source_stage": "0010",
+  "source_handoff_filename": "AUTOLAB_A_ENVOYER_CHATGPT_STAGE0010_DISCOVERY.zip",
+  "source_handoff_sha256": "6daec3091671147be71c8cedf0d984d0e7d26a635ff219094c312d93f3c2f296",
+  "source_handoff_size": 20541,
+  "phase": "NO_ROBUST_DISCOVERY_LEAD",
+  "robust_leads": 0,
+  "hypotheses_tested": 51,
+  "discovery_instruments": 29,
+  "discovery_categories": 8,
+  "frozen_candidate_present_in_handoff": false,
+  "validation_price_data_extracted": false,
+  "validation_price_data_analyzed": false,
+  "validation_status": "LOCKED_NOT_EXTRACTED_NOT_ANALYZED",
+  "summary_sha256": "535cf74686b418f31a6cfbd8cac0d0b4a3e9343a3287be4dac7c009089e96a60",
+  "final_sha256": "8e051ea962c970d0b638524f6009880362c3a8d3bedaf86edc23606c277239fa",
+  "results_sha256": "86384264f2bdb78f88419ee7c6a3fa4b5440f9cbec2744224a4f20442b873b54",
+  "scientific_next_action": "continue discovery with a structurally distinct serial-dependence/sign-sequence family; validation remains locked"
+}
