@@ -2,4 +2,4 @@ READY
 chain_id=AUTOLAB_CONTINUOUS_V1
 stage=0012
 purpose=discovery_weekday_seasonality_validation_locked_no_live
-technical_revision=EXACT_SEND_TOKEN_PROOF_V1
+technical_revision=TEXT_RECOGNITION_IN_COMPOSER_ZONE_V1
