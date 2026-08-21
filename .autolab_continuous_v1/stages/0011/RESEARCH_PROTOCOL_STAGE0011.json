@@ -70,7 +70,8 @@
       ]
     }
   },
-  "expected_hypotheses": 48,
+  "expected_hypotheses": 30,
+  "hypothesis_count_derivation": "2 streak families * 3 run lengths * 3 holds = 18; 2 alternation families * 2 lengths * 3 holds = 12; total = 30",
   "signal_definition": {
     "price_sign": "sign(close[t]-close[t-1]) on completed H1 bars only; zero-return bars invalidate a sequence",
     "streak": "last N close-to-close signs are identical and non-zero",
