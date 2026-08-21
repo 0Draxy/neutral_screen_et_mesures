@@ -1,0 +1,15 @@
+{
+  "chain_id": "AUTOLAB_CONTINUOUS_V1",
+  "stage": "0011",
+  "phase": "NO_ROBUST_DISCOVERY_LEAD",
+  "robust_leads": 0,
+  "hypotheses": 30,
+  "frozen_candidate_present_in_handoff": false,
+  "stage0011_handoff_sha256": "cae1d6e42178a5a8c6c8ac31479b0628fd8bbb28315960dc9dc254c0af3f1cdd",
+  "results_sha256": "52ed014e01beedbc2f076fd2daf1f3e8f48b84435cc11752c6f0bc3e690dacdb",
+  "summary_sha256": "dd7ce1646422f040435d81a2b754df3b3f58deef3e91190ad6d6d787e8314085",
+  "final_sha256": "2f98d6fef0c61e6d6e3a592d9019017f0a8f15542e97ddcedc1a4f0d8dc15582",
+  "done_sha256": "b4cc7b61cd9ea403359d80f173bfbc2ba64896258b55cb045d419dee1eb9c299",
+  "validation_status": "LOCKED_NOT_EXTRACTED_NOT_ANALYZED",
+  "decision": "continue discovery with structurally distinct family; validation stays locked"
+}
