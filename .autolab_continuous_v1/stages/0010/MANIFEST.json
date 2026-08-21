@@ -1,0 +1,20 @@
+{
+  "chain_id": "AUTOLAB_CONTINUOUS_V1",
+  "stage": "0010",
+  "folder": "AUTOLAB_STAGE_0010_DISCOVERY_LOCAL_BAR_STRUCTURE",
+  "start_bat": "RUN_STAGE_0010.bat",
+  "purpose": "discovery-only structurally-distinct local-bar morphology tournament after STAGE0007 produced 0 robust leads; validation remains locked; no live",
+  "source_stage0007_handoff_sha256": "d06e5c0931280e1c5fbfad3b6a6f2cca6ebd399fb0ca93f2407a19d1d53c757e",
+  "base_stage0007_research_sha256": "0b0a78be04ebd54c68faf0f7a2ae9ee80cc26f0adb1b33c383978b10b9b7130b",
+  "files": {
+    "DISCOVERY_MANIFEST_STAGE0006.csv": "f12a6b89ac3e06276c10cf1821f0a1868aed9b5cca1c2c9b412ef991875a370c",
+    "RESEARCH_PROTOCOL_STAGE0010.json": "9836c055017fbe5bcfdd860d091672c4b740d041457d15fece501d67ea439795",
+    "RESEARCH_STAGE0010.py": "3ca8523ce5e377790792d5fe15b856ce4f5893e89ebf2290d0571a10ede38b0e",
+    "RUN_STAGE0010_PATCH.py": "43d07dd3b5710a1fab647fcb23b12d91a2f3b11e2626ad7dda4fd4ccd487b158",
+    "RUN_STAGE_0010.bat": "1e710b510fda116be5d52ec18f2977403742a668885bd7c0aa99be2222049a51",
+    "STAGE0007_RESULT_LOCK.json": "f460f47ce91710a2e482b3d4fdc823417ab3d34fe388951b7c0416999d54cd0e",
+    "STAGE0010_DECISION.md": "d8d9522b774eded1b5ac4997d33c2fd8c3086dbea1e0067e71137b8326e3d393",
+    "UPLOAD_STAGE0010_RESULT.ps1": "3469fc49cc31c6747794d613d7b33d365007ea3c76c37191393fa4a962578b62",
+    "VALIDATION_POOL_STAGE0006_LOCKED.json": "c208bea3a979b5e5f860b40317dd434dc3e6778e864db6934a375ffaed64722e"
+  }
+}
