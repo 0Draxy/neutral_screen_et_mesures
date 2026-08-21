@@ -40,41 +40,181 @@
     "JAPAN_BOND"
   ],
   "validation_roles": [
-    {"role":"VALIDATION_PRIMARY","category":"SHARE_US","symbol":"#BAIDU"},
-    {"role":"VALIDATION_PRIMARY","category":"SHARE_US","symbol":"#JD.COM"},
-    {"role":"VALIDATION_PRIMARY","category":"SHARE_US","symbol":"#WASTEMGMT"},
-    {"role":"VALIDATION_PRIMARY","category":"SHARE_US","symbol":"#HARRISCORP"},
-    {"role":"VALIDATION_PRIMARY","category":"SHARE_US","symbol":"#MICRONTECH"},
-    {"role":"VALIDATION_RESERVE","category":"SHARE_US","symbol":"#VERTEX"},
-    {"role":"VALIDATION_RESERVE","category":"SHARE_US","symbol":"#SIRONA"},
-    {"role":"VALIDATION_RESERVE","category":"SHARE_US","symbol":"#NORTONLIFELOCK"},
-    {"role":"VALIDATION_RESERVE","category":"SHARE_US","symbol":"#MONDELEZ"},
-    {"role":"VALIDATION_RESERVE","category":"SHARE_US","symbol":"#WABTEC"},
-    {"role":"VALIDATION_PRIMARY","category":"SHARE_EU","symbol":"_ABNAMRO.AS"},
-    {"role":"VALIDATION_PRIMARY","category":"SHARE_EU","symbol":"_BMW.DE"},
-    {"role":"VALIDATION_RESERVE","category":"SHARE_EU","symbol":"_VK.FR"},
-    {"role":"VALIDATION_RESERVE","category":"SHARE_EU","symbol":"#GREATWESTLIFECO.CA"},
-    {"role":"VALIDATION_PRIMARY","category":"ETF","symbol":"#UVXY"},
-    {"role":"VALIDATION_PRIMARY","category":"ETF","symbol":"#EFA"},
-    {"role":"VALIDATION_RESERVE","category":"ETF","symbol":"#EWS"},
-    {"role":"VALIDATION_RESERVE","category":"ETF","symbol":"#IEUR"},
-    {"role":"VALIDATION_PRIMARY","category":"CRYPTO","symbol":"BTCEUR"},
-    {"role":"VALIDATION_PRIMARY","category":"CRYPTO","symbol":"BTCUSD"},
-    {"role":"VALIDATION_RESERVE","category":"CRYPTO","symbol":"ETHUSD"},
-    {"role":"VALIDATION_RESERVE","category":"CRYPTO","symbol":"BTGUSD"},
-    {"role":"VALIDATION_PRIMARY","category":"COMMODITY","symbol":"WHEAT"},
-    {"role":"VALIDATION_PRIMARY","category":"COMMODITY","symbol":"COPPER"},
-    {"role":"VALIDATION_RESERVE","category":"COMMODITY","symbol":"COTTON#2"},
-    {"role":"VALIDATION_RESERVE","category":"COMMODITY","symbol":"CrudeOIL"},
-    {"role":"VALIDATION_PRIMARY","category":"INDEX_NEW","symbol":"VIX"},
-    {"role":"VALIDATION_PRIMARY","category":"INDEX_NEW","symbol":"HK_50"},
-    {"role":"VALIDATION_RESERVE","category":"INDEX_NEW","symbol":"RACING_INDEX"},
-    {"role":"VALIDATION_RESERVE","category":"INDEX_NEW","symbol":"TAIWAN_INDX"},
-    {"role":"VALIDATION_PRIMARY","category":"FX_NEW","symbol":"USDSEK"},
-    {"role":"VALIDATION_PRIMARY","category":"FX_NEW","symbol":"GBPNZD"},
-    {"role":"VALIDATION_RESERVE","category":"FX_NEW","symbol":"NZDCAD"},
-    {"role":"VALIDATION_RESERVE","category":"FX_NEW","symbol":"AUDNZD"},
-    {"role":"VALIDATION_PRIMARY","category":"BOND","symbol":"JAPAN_BOND"}
+    {
+      "role": "VALIDATION_PRIMARY",
+      "category": "SHARE_US",
+      "symbol": "#BAIDU"
+    },
+    {
+      "role": "VALIDATION_PRIMARY",
+      "category": "SHARE_US",
+      "symbol": "#JD.COM"
+    },
+    {
+      "role": "VALIDATION_PRIMARY",
+      "category": "SHARE_US",
+      "symbol": "#WASTEMGMT"
+    },
+    {
+      "role": "VALIDATION_PRIMARY",
+      "category": "SHARE_US",
+      "symbol": "#HARRISCORP"
+    },
+    {
+      "role": "VALIDATION_PRIMARY",
+      "category": "SHARE_US",
+      "symbol": "#MICRONTECH"
+    },
+    {
+      "role": "VALIDATION_RESERVE",
+      "category": "SHARE_US",
+      "symbol": "#VERTEX"
+    },
+    {
+      "role": "VALIDATION_RESERVE",
+      "category": "SHARE_US",
+      "symbol": "#SIRONA"
+    },
+    {
+      "role": "VALIDATION_RESERVE",
+      "category": "SHARE_US",
+      "symbol": "#NORTONLIFELOCK"
+    },
+    {
+      "role": "VALIDATION_RESERVE",
+      "category": "SHARE_US",
+      "symbol": "#MONDELEZ"
+    },
+    {
+      "role": "VALIDATION_RESERVE",
+      "category": "SHARE_US",
+      "symbol": "#WABTEC"
+    },
+    {
+      "role": "VALIDATION_PRIMARY",
+      "category": "SHARE_EU",
+      "symbol": "_ABNAMRO.AS"
+    },
+    {
+      "role": "VALIDATION_PRIMARY",
+      "category": "SHARE_EU",
+      "symbol": "_BMW.DE"
+    },
+    {
+      "role": "VALIDATION_RESERVE",
+      "category": "SHARE_EU",
+      "symbol": "_VK.FR"
+    },
+    {
+      "role": "VALIDATION_RESERVE",
+      "category": "SHARE_EU",
+      "symbol": "#GREATWESTLIFECO.CA"
+    },
+    {
+      "role": "VALIDATION_PRIMARY",
+      "category": "ETF",
+      "symbol": "#UVXY"
+    },
+    {
+      "role": "VALIDATION_PRIMARY",
+      "category": "ETF",
+      "symbol": "#EFA"
+    },
+    {
+      "role": "VALIDATION_RESERVE",
+      "category": "ETF",
+      "symbol": "#EWS"
+    },
+    {
+      "role": "VALIDATION_RESERVE",
+      "category": "ETF",
+      "symbol": "#IEUR"
+    },
+    {
+      "role": "VALIDATION_PRIMARY",
+      "category": "CRYPTO",
+      "symbol": "BTCEUR"
+    },
+    {
+      "role": "VALIDATION_PRIMARY",
+      "category": "CRYPTO",
+      "symbol": "BTCUSD"
+    },
+    {
+      "role": "VALIDATION_RESERVE",
+      "category": "CRYPTO",
+      "symbol": "ETHUSD"
+    },
+    {
+      "role": "VALIDATION_RESERVE",
+      "category": "CRYPTO",
+      "symbol": "BTGUSD"
+    },
+    {
+      "role": "VALIDATION_PRIMARY",
+      "category": "COMMODITY",
+      "symbol": "WHEAT"
+    },
+    {
+      "role": "VALIDATION_PRIMARY",
+      "category": "COMMODITY",
+      "symbol": "COPPER"
+    },
+    {
+      "role": "VALIDATION_RESERVE",
+      "category": "COMMODITY",
+      "symbol": "COTTON#2"
+    },
+    {
+      "role": "VALIDATION_RESERVE",
+      "category": "COMMODITY",
+      "symbol": "CrudeOIL"
+    },
+    {
+      "role": "VALIDATION_PRIMARY",
+      "category": "INDEX_NEW",
+      "symbol": "VIX"
+    },
+    {
+      "role": "VALIDATION_PRIMARY",
+      "category": "INDEX_NEW",
+      "symbol": "HK_50"
+    },
+    {
+      "role": "VALIDATION_RESERVE",
+      "category": "INDEX_NEW",
+      "symbol": "RACING_INDEX"
+    },
+    {
+      "role": "VALIDATION_RESERVE",
+      "category": "INDEX_NEW",
+      "symbol": "TAIWAN_INDX"
+    },
+    {
+      "role": "VALIDATION_PRIMARY",
+      "category": "FX_NEW",
+      "symbol": "USDSEK"
+    },
+    {
+      "role": "VALIDATION_PRIMARY",
+      "category": "FX_NEW",
+      "symbol": "GBPNZD"
+    },
+    {
+      "role": "VALIDATION_RESERVE",
+      "category": "FX_NEW",
+      "symbol": "NZDCAD"
+    },
+    {
+      "role": "VALIDATION_RESERVE",
+      "category": "FX_NEW",
+      "symbol": "AUDNZD"
+    },
+    {
+      "role": "VALIDATION_PRIMARY",
+      "category": "BOND",
+      "symbol": "JAPAN_BOND"
+    }
   ],
   "price_data_extracted": false,
   "price_data_analyzed": false,
